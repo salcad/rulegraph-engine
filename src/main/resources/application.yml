@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: rulegraph-engine
+  neo4j:
+    uri: ${NEO4J_URI:bolt://localhost:7687}
+    authentication:
+      username: ${NEO4J_USER:neo4j}
+      password: ${NEO4J_PASSWORD:password123}
+
+# RuleGraph application settings. Point sample-docs-path at the provided materials.
+rulegraph:
+  sample-docs-path: ${RULEGRAPH_SAMPLE_DOCS:/home/salcad/interopera-homework/rulegraph-docs/sample_docs/sample_docs}
+  guidelines-pdf: sample_fund_guidelines.pdf
+  holdings-csv: sample_holdings.csv
+
+logging:
+  level:
+    com.interopera.rulegraph: INFO
+    org.neo4j.driver: WARN
