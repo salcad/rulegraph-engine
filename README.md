@@ -1,84 +1,298 @@
-# rulegraph-engine
+# RuleGraph Engine
 
-Backend for **RuleGraph** — audit-grade portfolio compliance reporting with graph-traced,
-deterministic figures. Spring Boot (Java 21) + Neo4j.
+RuleGraph produces an audit-grade portfolio compliance report for a fixed income fund. Given a fund
+guidelines document and a period-end holdings snapshot, it computes every reported figure (asset
+allocations, exposure caps, concentration limits, liquidity ratio, portfolio duration and DV01),
+states whether each figure is inside or outside its limit, and shows exactly where every number came
+from. The goal is not just correct numbers, but numbers a regulator or auditor can defend: each one
+is reproducible, traceable back to the source passage that justifies it, and provably produced by
+the calculation engine rather than by a language model.
 
-Design docs: [`../rulegraph-docs/claude/`](../rulegraph-docs/claude/) (solution overview, flow &
-audit events, architecture, RFC).
+This repository contains the backend engine. It is built with Java 21 and Spring Boot, stores the
+knowledge graph in Neo4j, and uses Apache PDFBox and Commons CSV to read the source materials.
 
-## Status
+## The problem this solves
 
-| Phase | Scope | State |
-|-------|-------|-------|
-| 2 | Ingest guidelines PDF + holdings CSV into one Neo4j graph with provenance; multi-hop queryable | ✅ working |
-| 3 | Deterministic computation engine + formula registry + traceable figures | next |
-| 4 | Firm A / Firm B reconfiguration by config | planned |
-| 5 | Reconciliation + LLM-firewall evaluation; append-only audit log | planned |
+A fund administrator runs a portfolio against a book of rules and must periodically report, for each
+rule, whether the portfolio complies. Today this is done by hand in a spreadsheet. It is slow, easy
+to get subtly wrong, and very hard to defend in an audit. When an examiner points at a number and
+asks "where did this come from, and who computed it?", the honest answer is often a formula buried
+deep in a working file.
+
+RuleGraph replaces that manual process with a system designed around five hard requirements:
+
+1. Reproducibility. Running the system twice on the same inputs yields identical figures.
+2. Traceability. Every figure can be followed back to the exact source passage it was derived from,
+   along an explicit path through the knowledge graph.
+3. No model-generated numbers. A language model may write narrative commentary, but it must never be
+   the source of any reported figure. This has to be verifiable, not merely promised.
+4. Reconciliation. The output must match a firm's expected answer key exactly, or within a clearly
+   stated tolerance.
+5. Reconfiguration. A second firm that computes some figures differently must be supported by
+   configuration only, with no change to the engine code.
+
+The sections below explain how the design meets each of these.
+
+## How the design meets the requirements
+
+### Reproducibility
+
+The path that produces a number contains no language model, no system clock, and no randomness. All
+monetary and percentage arithmetic uses `BigDecimal` with explicit rounding, never floating point in
+a reported value, and positions are summed in a stable order. As a result, two runs on the same
+inputs produce byte-for-byte identical figures. This has been confirmed by diffing the JSON output
+of two consecutive runs.
+
+### Traceability through the graph
+
+Figures are not computed from a hard-coded list of columns to add up. They are computed by traversing
+the graph. For each figure the engine first asks the graph which positions contribute, which limit
+applies, which calculation method to use, and which source passage defines the rule. Only then does
+trusted code sum the relevant positions. Because the graph traversal is the mechanism that selects
+the inputs, the path reported alongside the figure cannot drift away from how the figure was actually
+computed. Each figure carries the graph path it travelled and a citation that ends at the specific
+chunk of the guidelines document the rule came from. A figure that cannot be traced to a source is
+returned as an error rather than emitted as a silent value.
+
+### Keeping the language model out of the numbers
+
+There is a strict separation between deterministic calculation and any model-assisted text. The model
+is only allowed to do two things, and neither touches a number:
+
+- During ingestion it interprets a passage of guideline prose into a structured rule description: the
+  kind of rule, the entities involved, the threshold read from the text, and the name of a trusted
+  calculation method. It names a method from a fixed list; it never defines one and never computes a
+  result.
+- During reporting (added in a later phase) it may write narrative commentary about figures that have
+  already been computed.
+
+This boundary is enforced structurally, not by instruction. The calculation layer has no dependency
+on the model client and never receives the holdings data, so there is simply no code path from model
+output to a reported number. Any calculation method named during extraction is validated against a
+fixed registry; an unrecognised method is rejected rather than executed. A later phase adds an
+explicit check that scans generated narrative and fails the run if it contains any number that is not
+already present in the computed output.
+
+### Reconciliation
+
+The report computes thirteen figures for the sample fund. All thirteen reconcile exactly to the
+provided Firm A answer key on value, status, and limit utilisation. Because net asset value is an
+exact figure and all arithmetic is decimal, no tolerance is required for the percentage and currency
+figures.
+
+### Reconfiguration to a second firm
+
+A firm's house conventions are expressed as configuration that the shared calculators read at run
+time, rather than as separate code branches. The three points on which the second firm differs (which
+holdings count toward the non-investment-grade aggregate, whether concentration is measured per issuer
+or per parent group, and how utilisation is formatted) are already represented as configuration flags
+that the calculators honour. Loading those flags from per-firm files, so the two firms can be produced
+from the same build without editing code, is the next phase of work.
+
+## Architecture
+
+The engine is a pipeline of clearly separated layers. Data flows in one direction, and the language
+model sits on the outside of the numeric path.
+
+```mermaid
+flowchart LR
+    PDF[Guidelines PDF]:::src --> ING
+    CSV[Holdings CSV]:::src --> ING
+    ING[Ingestion<br/>parse to chunks and positions] --> GRAPH
+    GRAPH[(Knowledge graph in Neo4j<br/>rules + positions + provenance)] --> COMP
+    COMP[Computation<br/>traverse graph, run a trusted<br/>calculator for each figure] --> OUT
+    OUT[Report figure<br/>value, status, limit,<br/>graph path, citation]:::out
+    classDef src fill:#e8eef7,stroke:#345
+    classDef out fill:#e9f5ec,stroke:#363
+```
+
+Two data stores are used for two different jobs:
+
+- Neo4j holds the knowledge: the rules extracted from the guidelines, the positions from the holdings
+  snapshot, the relationships between them, and the provenance of every node and edge. Traceability is
+  fundamentally a graph traversal problem, which is why the rules and positions live in a graph.
+- An operational store (added with the audit log in a later phase) holds run records and an
+  append-only audit trail.
+
+### Module layout
+
+```
+src/main/java/com/interopera/rulegraph/
+  config/         application configuration properties
+  domain/         core records: Position, GuidelineChunk, RuleIntent, Provenance,
+                  FigureResult, Citation, FormulaKey and related enums
+  ingestion/      read the PDF (PDFBox) and CSV (Commons CSV) into domain records
+  graph/          build the Neo4j graph and run multi-hop traversal queries
+    extraction/   turn guideline chunks into structured rule descriptions
+  computation/    resolve rules from the graph and compute figures deterministically
+    calculator/   one trusted calculator per figure type
+  firmconfig/     a firm's house conventions, expressed as data
+  cli/            command-line entry points for ingestion and reporting
+  common/         small shared helpers, for example deterministic hashing
+```
+
+### The knowledge graph
+
+A single graph holds both the rules and the positions, so a figure can be traced from the portfolio
+data through the rule that governs it to the source passage that defines that rule.
+
+```mermaid
+flowchart TD
+    Position -->|IN_ASSET_CLASS| AssetClass
+    Position -->|ISSUED_BY| Issuer
+    Issuer -->|ROLLS_UP_TO| ParentIssuer
+    AssetClass -->|HAS_LIMIT| Limit
+    AssetClass -->|CONTRIBUTES_TO| Aggregate
+    AssetClass -->|CONTRIBUTES_TO| LiquidityFloor
+    RiskMetric -->|HAS_THRESHOLD| Threshold
+    Threshold -->|ON_BREACH| BreachAction
+    BreachAction -->|OWNED_BY| Owner
+    Limit -->|DEFINED_BY| GuidelineChunk
+    Aggregate -->|DEFINED_BY| GuidelineChunk
+    LiquidityFloor -->|DEFINED_BY| GuidelineChunk
+    ConcentrationLimit -->|DEFINED_BY| GuidelineChunk
+    Threshold -->|DEFINED_BY| GuidelineChunk
+    GuidelineChunk:::src
+    Position:::data
+    classDef src fill:#f7efe3,stroke:#653
+    classDef data fill:#e8eef7,stroke:#345
+```
+
+Read it from the bottom up: a `Position` belongs to an `AssetClass` and is issued by an `Issuer`
+that may roll up to a `ParentIssuer`; each asset class and risk metric carries the limit or threshold
+that governs it; and every limit, cap, floor, and threshold terminates at the `GuidelineChunk` that
+defines it, which is where a figure's citation points.
+
+Every node and every edge carries provenance: the source document, the page where applicable, the
+chunk identifier, the ingestion time, and an extraction confidence. Guideline chunks are produced at
+line level, so each rule cites a tight, specific passage rather than a whole page. For example, the
+non-investment-grade exposure cap cites the exact note on page 2 that defines it. The graph supports
+multi-hop questions such as "what is the breach action if portfolio duration exceeds its limit, and
+who is notified?", answered by traversal rather than by re-reading the document.
+
+### How a single figure is computed
+
+1. The rule resolver reads every rule from the graph: its bounds, its contributing asset classes, the
+   calculation method to use, and the source chunk it is defined by.
+2. The computation service dispatches each rule to the trusted calculator registered for its method.
+3. The calculator sums the contributing positions returned by a graph traversal, compares the result
+   to the limit, and produces a value, a status (ok, at limit, breach), the limit, the utilisation,
+   the graph path, and the citation.
+4. If a rule cannot be traced to a source chunk, an error figure is produced instead of a value.
 
 ## Requirements
 
 - JDK 21
-- Docker (for Neo4j)
-- Maven 3.6+
+- Maven 3.6 or newer
+- Docker (used to run Neo4j locally)
 
-## Run Phase 2 (ingestion → graph)
+## Running the engine
+
+### Step 1: start Neo4j
 
 ```bash
-# 1. Start Neo4j
 docker compose up -d
+```
 
-# 2. Build
+This starts a local Neo4j instance with the Bolt protocol on port 7687 and the browser UI on port
+7474 (username `neo4j`, password `password123`). You can browse the graph in the UI after ingestion.
+
+### Step 2: build
+
+```bash
 mvn -DskipTests package
+```
 
-# 3. Ingest the sample materials into the graph and run the multi-hop demo
+### Step 3: ingest the source materials into the graph
+
+```bash
 NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar ingest
 ```
 
-The `ingest` run parses the PDF + CSV, extracts rule intents, builds the graph, and prints two
-multi-hop traversals (duration breach action + owner; non-IG aggregate contributors + source chunk).
-Without the `ingest` argument the app starts normally and does nothing else (no DB calls).
+This parses the guidelines PDF and holdings CSV, extracts the rules, builds the graph with provenance
+on every node and edge, and runs two multi-hop traversals as a demonstration (the breach action and
+owner for portfolio duration, and the asset classes that contribute to the non-investment-grade
+aggregate together with the passage that defines the cap).
 
-Browse the graph at <http://localhost:7474> (user `neo4j`, password `password123`).
+### Step 4: compute the report and reconcile to the answer key
+
+```bash
+NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar report
+```
+
+This ingests, computes every figure by traversing the graph, prints each figure as JSON in the
+expected shape, and reconciles all thirteen against the Firm A answer key. A sample figure looks like
+this:
+
+```json
+{
+  "figure": "aggregate_non_ig_exposure",
+  "value": "15.0%",
+  "status": "OK",
+  "limit": "max 20%",
+  "utilization": "75.0%",
+  "graph_path": "(AssetClass:high_yield)-[:CONTRIBUTES_TO]->(Aggregate:aggregate_non_ig_exposure) , (AssetClass:structured_credit)-[:CONTRIBUTES_TO]->(Aggregate:aggregate_non_ig_exposure) -[:DEFINED_BY]->(GuidelineChunk:chunk_1813)",
+  "citation": {
+    "source_doc": "sample_fund_guidelines.pdf",
+    "page": 2,
+    "chunk_id": "chunk_1813",
+    "passage_summary": "Note: Aggregate exposure to non-investment-grade instruments (High Yield + St..."
+  }
+}
+```
+
+Started without an argument, the application boots and does nothing further, so it makes no database
+calls during a plain startup or during tests.
 
 ### Configuration
 
-`src/main/resources/application.yml` (override via env):
+Settings live in `src/main/resources/application.yml` and can be overridden with environment
+variables.
 
-| Property | Env | Default |
-|----------|-----|---------|
-| `rulegraph.sample-docs-path` | `RULEGRAPH_SAMPLE_DOCS` | `…/rulegraph-docs/sample_docs/sample_docs` |
-| `spring.neo4j.uri` | `NEO4J_URI` | `bolt://localhost:7687` |
-| `spring.neo4j.authentication.password` | `NEO4J_PASSWORD` | `password123` |
+| Setting | Environment variable | Default |
+|---------|----------------------|---------|
+| Path to the sample materials | `RULEGRAPH_SAMPLE_DOCS` | a local path to the provided sample documents |
+| Neo4j connection URI | `NEO4J_URI` | `bolt://localhost:7687` |
+| Neo4j username | `NEO4J_USER` | `neo4j` |
+| Neo4j password | `NEO4J_PASSWORD` | `password123` |
 
-## What Phase 2 produces
-
-- **Provenance on every node and edge** — `source_doc, page, chunk_id, ingested_at, confidence`.
-- **Line-level chunking** so each rule cites a tight passage (e.g. the non-IG cap cites the exact
-  "Note: Aggregate exposure to non-investment-grade instruments…" line on page 2).
-- **The trace terminus**: every `Limit`/`Aggregate`/`Threshold`/`ConcentrationLimit`/`LiquidityFloor`
-  has a `DEFINED_BY` edge to the `GuidelineChunk` it came from.
-- **Multi-hop traversals** answering questions without re-reading the document.
-
-### The LLM seam
-
-`graph.extraction.RuleExtractor` is the interface where an LLM plugs in to interpret guideline prose
-into rule intents. The shipped `SeedRuleExtractor` is a deterministic baseline (the post-approval
-rule set), so the system runs offline; an LLM implementation can replace it with no downstream
-change. Either way, an extractor only *names* a trusted `FormulaKey` — it never produces a figure.
-
-## Graph model
-
-```
-(AssetClass)-[:HAS_LIMIT]->(Limit)-[:DEFINED_BY]->(GuidelineChunk)
-(AssetClass)-[:CONTRIBUTES_TO]->(Aggregate)-[:DEFINED_BY]->(GuidelineChunk)
-(RiskMetric)-[:HAS_THRESHOLD]->(Threshold)-[:ON_BREACH]->(BreachAction)-[:OWNED_BY]->(Owner)
-(ConcentrationLimit)-[:DEFINED_BY]->(GuidelineChunk)
-(LiquidityFloor)-[:DEFINED_BY]->(GuidelineChunk)
-(Position)-[:IN_ASSET_CLASS]->(AssetClass)   (Position)-[:ISSUED_BY]->(Issuer)-[:ROLLS_UP_TO]->(ParentIssuer)
-```
-
-## Tests
+## Testing
 
 ```bash
-mvn test          # deterministic ingestion tests (no Neo4j needed)
+mvn test
 ```
+
+The tests are deterministic and do not require a running Neo4j instance. They cover the holdings
+parse (including the check that net asset value sums to the expected total and that a downgraded
+holding is detected), the value formatting rules that make figures reproducible and firm switching
+possible, and the breach-status logic for caps, floors, and bands.
+
+## Working with the language model offline
+
+The point where a language model interprets guideline prose into structured rules is defined behind a
+single interface, so the system can run without any external API key. A deterministic baseline
+implementation ships the approved rule set and binds each rule to the real passage it appears in, so
+the full pipeline runs end to end offline. A model-backed implementation can be substituted behind the
+same interface with no change to anything downstream. Either way, the extractor only names a trusted
+calculation method; it never produces a figure.
+
+## Current status
+
+| Area | State |
+|------|-------|
+| Ingestion of the guidelines PDF and holdings CSV into one graph, with provenance | Working |
+| Multi-hop graph queries answered by traversal | Working |
+| Deterministic computation of all thirteen figures by graph traversal | Working |
+| Reconciliation to the Firm A answer key | All thirteen figures match |
+| Reproducibility of figures across runs | Confirmed byte-for-byte |
+| Configuration-driven switching to the second firm | Flags in place, file loading is next |
+| Narrative firewall check and append-only audit log | Planned |
+
+## Notes on scope and security
+
+This is a working system that demonstrates the five requirements rather than a production deployment.
+Production-grade authentication and secrets management are intentionally out of scope; for a real
+deployment one would add access control on the API and the audit log, move credentials into a secret
+store, and chain the audit events together so any tampering is evident. Error handling covers the
+expected path plus the two failure modes that matter here: a rule whose source passage cannot be
+resolved, and a figure that cannot be traced and is therefore returned as an error.

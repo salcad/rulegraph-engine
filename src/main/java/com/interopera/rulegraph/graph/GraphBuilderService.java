@@ -114,13 +114,24 @@ public class GraphBuilderService {
                     MATCH (g:GuidelineChunk {chunk_id: $chunkId})
                     MERGE (cl)-[d:DEFINED_BY]->(g) SET d += $prov
                     """, p);
-            case LIQUIDITY_FLOOR -> tx.run("""
-                    MERGE (lf:LiquidityFloor {code: $code})
-                      SET lf.floor=$min, lf.unit=$unit, lf.formula_key=$formulaKey
-                    WITH lf
-                    MATCH (g:GuidelineChunk {chunk_id: $chunkId})
-                    MERGE (lf)-[d:DEFINED_BY]->(g) SET d += $prov
-                    """, p);
+            case LIQUIDITY_FLOOR -> {
+                tx.run("""
+                        MERGE (lf:LiquidityFloor {code: $code})
+                          SET lf.floor=$min, lf.unit=$unit, lf.formula_key=$formulaKey
+                        WITH lf
+                        MATCH (g:GuidelineChunk {chunk_id: $chunkId})
+                        MERGE (lf)-[d:DEFINED_BY]->(g) SET d += $prov
+                        """, p);
+                for (String contributor : intent.contributingCodes()) {
+                    Map<String, Object> cp = new HashMap<>(p);
+                    cp.put("contributor", contributor);
+                    tx.run("""
+                            MERGE (ac:AssetClass {code: $contributor})
+                            MERGE (lf:LiquidityFloor {code: $code})
+                            MERGE (ac)-[c:CONTRIBUTES_TO]->(lf) SET c += $prov
+                            """, cp);
+                }
+            }
             case RISK_METRIC -> {
                 tx.run("""
                         MERGE (m:RiskMetric {code: $code})

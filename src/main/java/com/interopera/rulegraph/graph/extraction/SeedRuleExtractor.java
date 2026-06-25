@@ -68,10 +68,11 @@ public class SeedRuleExtractor implements RuleExtractor {
                 chunkFor(chunks, "Government-related entities"),
                 "Section 3.2 — GRE concentration cap", 1.0));
 
-        // --- Section 3.3: liquidity floor ---
+        // --- Section 3.3: liquidity floor (SGS + MAS Bills + Cash are the liquid asset classes) ---
         intents.add(new RuleIntent(
                 RuleType.LIQUIDITY_FLOOR, "liquid_assets_ratio", FormulaKey.LIQUIDITY_RATIO,
-                bd(25), null, PCT, List.of(),
+                bd(25), null, PCT,
+                List.of("singapore_government_securities", "mas_bills", "cash"),
                 chunkFor(chunks, "Liquid assets"),
                 "Section 3.3 — liquidity floor (normal conditions)", 1.0));
 
