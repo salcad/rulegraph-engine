@@ -33,6 +33,44 @@ RuleGraph replaces that manual process with a system designed around five hard r
 
 The sections below explain how the design meets each of these.
 
+## Why a knowledge graph, and why Neo4j
+
+The rules in a fund's guidelines are not a flat list. They are a web of relationships. A limit
+belongs to an asset class. An asset class contributes to an aggregate exposure cap. A risk metric
+has a threshold, the threshold has a breach action, and the breach action has an owner who must be
+notified. An issuer rolls up to a parent issuer, and concentration can be measured at either level.
+A position belongs to an asset class and is tied to an issuer. Every one of these rules traces back
+to a specific passage in the source document.
+
+The reporting requirement is essentially a traversal over that web. To produce the
+non-investment-grade figure, you start at two asset classes, follow them to the aggregate they feed,
+read the cap off the aggregate, and follow the aggregate back to the passage that defines it. To
+answer "who is notified if duration breaches its limit", you walk from the metric to its threshold to
+the breach action to the owner. Storing this in a relational schema would mean a join table for each
+relationship and a multi-way join for each question, and the all-important "where did this come from"
+trail would be metadata bolted onto the side. In a graph it is the natural shape of the data, and the
+trail is just another edge.
+
+This is why the assignment calls for a knowledge graph, and why traceability has to be expressed as a
+path through it rather than as a separate audit note. A graph makes the chain from a figure to its
+source an explicit, walkable route instead of a claim recorded elsewhere.
+
+Neo4j fits this for a few concrete reasons:
+
+- It is a property graph, so relationships are first-class and can carry their own properties. That
+  matters here because provenance (source document, page, chunk, ingestion time, extraction
+  confidence) is attached to every edge as well as every node, which is what lets the citation travel
+  with the relationship rather than being looked up separately.
+- Cypher expresses multi-hop traversals directly. A question like "the breach action and owner for a
+  metric" is a short, readable pattern, and the same traversal that answers a question is the one the
+  computation layer uses to select a figure's inputs. The query is the explanation.
+- It handles the variable-shape, heavily-interlinked structure of a rulebook comfortably, where a
+  relational model would need many tables and the relationships would be implicit in foreign keys
+  rather than explicit and queryable.
+- The fund here is small, so this is not a choice driven by scale. It is driven by the shape of the
+  problem and by traceability being a graph property. A well-modelled graph of this one fund, with a
+  correct and fully traceable set of figures, is exactly what the task rewards.
+
 ## How the design meets the requirements
 
 ### Reproducibility
@@ -179,6 +217,42 @@ who is notified?", answered by traversal rather than by re-reading the document.
    to the limit, and produces a value, a status (ok, at limit, breach), the limit, the utilisation,
    the graph path, and the citation.
 4. If a rule cannot be traced to a source chunk, an error figure is produced instead of a value.
+
+As a worked example, take the non-investment-grade exposure figure. The resolver finds the aggregate
+node for that cap, follows its `CONTRIBUTES_TO` edges to discover that high yield and structured
+credit feed it, reads the twenty percent cap off the aggregate, and follows the `DEFINED_BY` edge to
+the exact note on page two of the guidelines. The calculator then traverses from those two asset
+classes to their positions, sums the market values (nine percent plus six percent of net asset
+value), divides by net asset value to get fifteen percent, and marks it within the cap. The figure it
+emits carries that fifteen percent value, the graph path it walked, and a citation pointing at the
+page-two note. Nothing about that number was chosen by a model, and the path is the same one the
+engine actually used to compute it, so the citation cannot be wrong about where the figure came from.
+
+## Key design decisions
+
+A few decisions do most of the work, and each follows from one of the five requirements rather than
+from preference.
+
+- Trusted calculators behind named methods. Each figure type is computed by one small, registered
+  calculator, identified by a method name such as `ALLOCATION_PERCENT` or `AGGREGATE_EXPOSURE_PERCENT`.
+  The graph stores the method name; the engine owns the implementation. This is the enforcement point
+  for keeping a model out of the numbers: a method name that is not in the registry is rejected rather
+  than executed, so even the extraction step can only point at calculations that already exist in code.
+- A single seam for the language model. Interpreting guideline prose into a structured rule is the one
+  place a model genuinely helps, so that step sits behind one interface. Everything downstream consumes
+  the structured rule, not the prose, which keeps the model's influence contained to interpretation and
+  makes it swappable without touching the calculation path.
+- Configuration instead of code branches for firm differences. A second firm's conventions are data the
+  shared calculators read, not a parallel set of classes. This is what allows two firms to be produced
+  from one build, and it keeps each firm's differences in one readable place that an auditor can inspect,
+  rather than scattered through the code.
+- Two stores for two jobs. The graph holds the knowledge and answers traceability questions; a separate
+  operational store (added with the audit log) holds the immutable record of what each run did. Keeping
+  them apart means the reasoning data and the tamper-evident record do not get in each other's way.
+- Decimal arithmetic and line-level source chunks. Reported values use exact decimal math with explicit
+  rounding so reruns are identical, and the guidelines are chunked at line level so each rule cites a
+  tight passage instead of a whole page. Both are small choices that directly serve reproducibility and
+  precise traceability.
 
 ## Requirements
 
