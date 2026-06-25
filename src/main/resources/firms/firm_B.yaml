@@ -1,0 +1,20 @@
+# Firm B method configuration.
+#
+# Firm B administers the same fund and the same holdings as Firm A, but applies three different house
+# conventions. Each difference is a single setting below. No engine code changes between the two firms;
+# only this file differs.
+firm_id: firm_B
+
+non_ig_aggregate:
+  # Convention 1: a holding currently below investment grade ("fallen angel") counts toward the
+  # non-investment-grade aggregate even if its asset class is Investment Grade Corporate Bonds.
+  include_fallen_angels: true
+
+gre_concentration:
+  # Convention 2: government-related entities that share a parent issuer are aggregated and tested
+  # as a single group against the cap.
+  group_by: parent_issuer     # issuer | parent_issuer
+
+utilization:
+  # Convention 3: limit utilisation is reported in truncated basis points (for example 58.333% -> 5833 bps).
+  format: truncated_bps       # percent_1dp | truncated_bps

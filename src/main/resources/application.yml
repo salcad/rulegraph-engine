@@ -12,6 +12,9 @@ rulegraph:
   sample-docs-path: ${RULEGRAPH_SAMPLE_DOCS:/home/salcad/interopera-homework/rulegraph-docs/sample_docs/sample_docs}
   guidelines-pdf: sample_fund_guidelines.pdf
   holdings-csv: sample_holdings.csv
+  # Optional external directory of per-firm YAML files. When empty, configs load from the bundled
+  # firms/ resources. Lets new firms be added without rebuilding the application.
+  firms-path: ${RULEGRAPH_FIRMS_DIR:}
 
 logging:
   level:

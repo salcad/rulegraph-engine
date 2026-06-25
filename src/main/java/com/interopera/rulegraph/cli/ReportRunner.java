@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.interopera.rulegraph.computation.FigureComputationService;
 import com.interopera.rulegraph.domain.FigureResult;
-import com.interopera.rulegraph.domain.FigureStatus;
 import com.interopera.rulegraph.firmconfig.FirmConfig;
+import com.interopera.rulegraph.firmconfig.FirmConfigLoader;
 import com.interopera.rulegraph.ingestion.IngestionService;
+import com.interopera.rulegraph.reconciliation.ExpectedFigures;
+import com.interopera.rulegraph.reconciliation.ExpectedFigures.Expected;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -19,11 +21,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Phase 3 entry point. Started with {@code report}, it runs the full pipeline — ingest into the
- * graph, then compute every figure deterministically by graph traversal — prints the figures as
- * JSON in the brief's shape, and reconciles them against Firm A's answer key.
+ * Report entry point. Started with {@code report}, it runs the full pipeline (ingest into the graph,
+ * then compute every figure deterministically by graph traversal), prints the figures as JSON, and
+ * reconciles them against the selected firm's answer key.
  *
- * <pre>  java -jar rulegraph-engine.jar report  </pre>
+ * <p>The firm is chosen at run time and changes nothing in the engine. Both of these produce a valid
+ * report from the same build:
+ * <pre>
+ *   java -jar rulegraph-engine.jar report                  # Firm A (default)
+ *   java -jar rulegraph-engine.jar report --firm=firm_B    # Firm B, by configuration only
+ * </pre>
  */
 @Component
 @Order(10)
@@ -33,13 +40,17 @@ public class ReportRunner implements ApplicationRunner {
 
     private final IngestionService ingestionService;
     private final FigureComputationService computationService;
+    private final FirmConfigLoader firmConfigLoader;
     private final ObjectMapper json = new ObjectMapper()
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
             .enable(SerializationFeature.INDENT_OUTPUT);
 
-    public ReportRunner(IngestionService ingestionService, FigureComputationService computationService) {
+    public ReportRunner(IngestionService ingestionService,
+                        FigureComputationService computationService,
+                        FirmConfigLoader firmConfigLoader) {
         this.ingestionService = ingestionService;
         this.computationService = computationService;
+        this.firmConfigLoader = firmConfigLoader;
     }
 
     @Override
@@ -48,23 +59,45 @@ public class ReportRunner implements ApplicationRunner {
             return;
         }
 
-        ingestionService.ingest();
-        List<FigureResult> figures = computationService.computeAll(FirmConfig.firmA());
+        String firmId = resolveFirmId(args);
+        FirmConfig firm = firmConfigLoader.load(firmId);
+        log.info("Running report for {}", firm.firmId());
 
-        log.info("=== Computed figures (Firm A) ===");
+        ingestionService.ingest();
+        List<FigureResult> figures = computationService.computeAll(firm);
+
+        log.info("=== Computed figures ({}) ===", firm.firmId());
         System.out.println(json.writeValueAsString(figures));
 
-        reconcile(figures);
+        reconcile(firm.firmId(), figures);
     }
 
-    /** Per-figure reconciliation vs Firm A's answer key on value, status, and utilization. */
-    private void reconcile(List<FigureResult> figures) {
-        log.info("=== Reconciliation vs firm_A_answer_key ===");
+    /** Firm id from {@code --firm=...}, else a bare argument after {@code report}, else firm_A. */
+    private String resolveFirmId(ApplicationArguments args) {
+        List<String> opt = args.getOptionValues("firm");
+        if (opt != null && !opt.isEmpty()) {
+            return opt.getFirst();
+        }
+        return args.getNonOptionArgs().stream()
+                .filter(a -> !a.equals("report"))
+                .findFirst()
+                .orElse("firm_A");
+    }
+
+    /** Per-figure reconciliation vs the firm's answer key on value, status, and utilisation. */
+    private void reconcile(String firmId, List<FigureResult> figures) {
+        Map<String, Expected> expected = ExpectedFigures.forFirm(firmId);
+        log.info("=== Reconciliation vs {} answer key ===", firmId);
+        if (expected.isEmpty()) {
+            log.warn("No answer key on file for {} - skipping reconciliation", firmId);
+            return;
+        }
+
         int pass = 0;
         for (FigureResult f : figures) {
-            Expected e = FIRM_A.get(f.figure());
+            Expected e = expected.get(f.figure());
             if (e == null) {
-                System.out.printf("  ?  %-34s (no expected entry)%n", f.figure());
+                System.out.printf("  ?    %-34s (no expected entry)%n", f.figure());
                 continue;
             }
             boolean ok = e.value().equals(f.value())
@@ -73,30 +106,11 @@ public class ReportRunner implements ApplicationRunner {
             if (ok) {
                 pass++;
             }
-            System.out.printf("  %s %-34s value=%-16s status=%-9s util=%-9s%s%n",
+            System.out.printf("  %-4s %-34s value=%-16s status=%-9s util=%-9s%s%n",
                     ok ? "PASS" : "FAIL", f.figure(), f.value(), f.status(), f.utilization(),
                     ok ? "" : "  EXPECTED value=" + e.value() + " status=" + e.status()
                             + " util=" + e.utilization());
         }
-        System.out.printf("%n  %d/%d figures reconcile to Firm A%n", pass, FIRM_A.size());
+        System.out.printf("%n  %d/%d figures reconcile to %s%n", pass, expected.size(), firmId);
     }
-
-    private record Expected(String value, FigureStatus status, String utilization) {
-    }
-
-    /** Firm A ground truth transcribed from firm_A_answer_key.xlsx (Phase 5 reads the xlsx directly). */
-    private static final Map<String, Expected> FIRM_A = Map.ofEntries(
-            Map.entry("singapore_government_securities", new Expected("35.0%", FigureStatus.OK, "58.3%")),
-            Map.entry("mas_bills", new Expected("8.0%", FigureStatus.OK, "20.0%")),
-            Map.entry("investment_grade_corporate_bonds", new Expected("33.0%", FigureStatus.OK, "66.0%")),
-            Map.entry("high_yield", new Expected("9.0%", FigureStatus.OK, "60.0%")),
-            Map.entry("foreign_currency_bonds", new Expected("5.0%", FigureStatus.OK, "25.0%")),
-            Map.entry("structured_credit", new Expected("6.0%", FigureStatus.OK, "60.0%")),
-            Map.entry("cash", new Expected("4.0%", FigureStatus.BREACH, "n/a")),
-            Map.entry("aggregate_non_ig_exposure", new Expected("15.0%", FigureStatus.OK, "75.0%")),
-            Map.entry("single_corporate_issuer", new Expected("8.0%", FigureStatus.AT_LIMIT, "100.0%")),
-            Map.entry("gre_issuer", new Expected("7.0%", FigureStatus.OK, "58.3%")),
-            Map.entry("liquid_assets_ratio", new Expected("47.0%", FigureStatus.OK, "188.0%")),
-            Map.entry("modified_duration", new Expected("3.88 yrs", FigureStatus.OK, "n/a")),
-            Map.entry("portfolio_dv01", new Expected("SGD 38,790 / bp", FigureStatus.OK, "45.6%")));
 }

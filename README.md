@@ -121,11 +121,19 @@ figures.
 ### Reconfiguration to a second firm
 
 A firm's house conventions are expressed as configuration that the shared calculators read at run
-time, rather than as separate code branches. The three points on which the second firm differs (which
-holdings count toward the non-investment-grade aggregate, whether concentration is measured per issuer
-or per parent group, and how utilisation is formatted) are already represented as configuration flags
-that the calculators honour. Loading those flags from per-firm files, so the two firms can be produced
-from the same build without editing code, is the next phase of work.
+time, rather than as separate code branches. Each firm is a small YAML file describing three
+settings: which holdings count toward the non-investment-grade aggregate, whether concentration is
+measured per issuer or per parent group, and how utilisation is formatted. Selecting a firm at run
+time loads that file and nothing in the engine changes.
+
+This has been verified end to end. From a single build, running the report for Firm A and then for
+Firm B produces both firms' answer keys, with all thirteen figures reconciling in each case. Firm B
+differs in exactly the three ways its brief describes: a downgraded holding pulls the
+non-investment-grade aggregate from fifteen percent to twenty-one percent and into breach; grouping
+the two government-related issuers under their shared parent pushes that concentration from seven
+percent to thirteen percent and into breach; and every utilisation is reported in truncated basis
+points. Every other value and status is identical to Firm A. Adding a third firm would mean adding a
+YAML file, not editing code.
 
 ## Architecture
 
@@ -291,12 +299,17 @@ aggregate together with the passage that defines the cap).
 ### Step 4: compute the report and reconcile to the answer key
 
 ```bash
+# Firm A (the default)
 NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar report
+
+# Firm B, selected by configuration only, from the same build
+NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar report --firm=firm_B
 ```
 
 This ingests, computes every figure by traversing the graph, prints each figure as JSON in the
-expected shape, and reconciles all thirteen against the Firm A answer key. A sample figure looks like
-this:
+expected shape, and reconciles all thirteen against the selected firm's answer key. Both firms
+reconcile fully. The firm is chosen with `--firm=firm_A` or `--firm=firm_B`, and the only thing that
+changes between the two runs is which configuration file is read. A sample figure looks like this:
 
 ```json
 {
@@ -329,6 +342,11 @@ variables.
 | Neo4j connection URI | `NEO4J_URI` | `bolt://localhost:7687` |
 | Neo4j username | `NEO4J_USER` | `neo4j` |
 | Neo4j password | `NEO4J_PASSWORD` | `password123` |
+| External directory of per-firm YAML files | `RULEGRAPH_FIRMS_DIR` | unset, so firms load from the bundled `firms/` resources |
+
+The per-firm method files live under `src/main/resources/firms/` (`firm_A.yaml` and `firm_B.yaml`).
+Each declares the three settings that distinguish a firm. Pointing `RULEGRAPH_FIRMS_DIR` at an
+external folder lets new firms be added without rebuilding the application.
 
 ## Testing
 
@@ -357,9 +375,9 @@ calculation method; it never produces a figure.
 | Ingestion of the guidelines PDF and holdings CSV into one graph, with provenance | Working |
 | Multi-hop graph queries answered by traversal | Working |
 | Deterministic computation of all thirteen figures by graph traversal | Working |
-| Reconciliation to the Firm A answer key | All thirteen figures match |
+| Reconciliation to both firms' answer keys | All thirteen figures match for each firm |
 | Reproducibility of figures across runs | Confirmed byte-for-byte |
-| Configuration-driven switching to the second firm | Flags in place, file loading is next |
+| Configuration-driven switching to the second firm | Working from one build, no code change |
 | Narrative firewall check and append-only audit log | Planned |
 
 ## Notes on scope and security

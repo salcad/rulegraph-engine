@@ -1,0 +1,17 @@
+# Firm A method configuration.
+#
+# Firm A applies the default reading of the guidelines. These are the house conventions the shared
+# calculators read at run time; switching firms means loading a different file, not editing code.
+firm_id: firm_A
+
+non_ig_aggregate:
+  # Only High Yield and Structured Credit count toward the non-investment-grade aggregate.
+  include_fallen_angels: false
+
+gre_concentration:
+  # Government-related entity concentration is measured per individual issuer.
+  group_by: issuer            # issuer | parent_issuer
+
+utilization:
+  # Limit utilisation is reported as a percentage to one decimal place.
+  format: percent_1dp         # percent_1dp | truncated_bps

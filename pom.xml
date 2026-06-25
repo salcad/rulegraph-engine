@@ -55,6 +55,11 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- Per-firm YAML configs are parsed with SnakeYAML, already on the classpath via Spring Boot -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
