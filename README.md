@@ -107,16 +107,20 @@ is only allowed to do two things, and neither touches a number:
 This boundary is enforced structurally, not by instruction. The calculation layer has no dependency
 on the model client and never receives the holdings data, so there is simply no code path from model
 output to a reported number. Any calculation method named during extraction is validated against a
-fixed registry; an unrecognised method is rejected rather than executed. A later phase adds an
-explicit check that scans generated narrative and fails the run if it contains any number that is not
-already present in the computed output.
+fixed registry; an unrecognised method is rejected rather than executed. On top of that, the system
+verifies the boundary rather than just asserting it: after the narrative is generated, a firewall
+check scans it for every numeric token and confirms each one already appears in the computed figures.
+If the commentary ever introduced a number of its own, the check would flag it and the run would
+report the violation. This makes the requirement observable, not merely promised.
 
 ### Reconciliation
 
-The report computes thirteen figures for the sample fund. All thirteen reconcile exactly to the
-provided Firm A answer key on value, status, and limit utilisation. Because net asset value is an
-exact figure and all arithmetic is decimal, no tolerance is required for the percentage and currency
-figures.
+The report computes thirteen figures for the sample fund and reconciles them against the firm's
+answer key, reporting a pass or fail and a numeric delta for each. For Firm A the answer key is read
+directly from the provided spreadsheet, so this is a genuine comparison rather than a check against a
+transcription. All thirteen figures reconcile exactly on value, status, and limit utilisation, with a
+delta of zero. Because net asset value is an exact figure and all arithmetic is decimal, no tolerance
+is required.
 
 ### Reconfiguration to a second firm
 
@@ -262,6 +266,28 @@ from preference.
   tight passage instead of a whole page. Both are small choices that directly serve reproducibility and
   precise traceability.
 
+## What a report run checks, and what it records
+
+A report run does more than print figures. After computing them it runs three checks and writes an
+audit record of the whole thing.
+
+- Reconciliation. Each figure is compared to the firm's answer key, and the run prints a pass or fail
+  and a numeric delta per figure. Firm A is checked against the provided spreadsheet directly.
+- Traceability. For every figure the run confirms there is a graph path and a citation, and that the
+  cited source chunk actually exists in the graph. A figure whose citation pointed at a chunk the
+  graph did not contain would fail this check rather than pass quietly.
+- Firewall. The narrative commentary is generated and then scanned, and the run reports how many
+  numbers it contains and whether every one of them is present in the computed output. Any number the
+  narrative introduced on its own is listed as a violation.
+
+Every stage is written to an append-only audit log, one JSON line per event, under
+`artifacts/audit/`. The log records the run starting, the firm configuration that was selected, the
+graph being constructed, the figures being computed, the reconciliation result, the traceability
+result, the firewall result, and the export. The class that writes it exposes only an append method
+and a read method, and the file is opened in append mode, so there is no code path that can rewrite or
+delete a record once written. This is the trail an examiner would replay to reconstruct exactly how a
+report was produced. The computed figures themselves are also written to `artifacts/exports/` as JSON.
+
 ## Requirements
 
 - JDK 21
@@ -307,9 +333,11 @@ NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar report --
 ```
 
 This ingests, computes every figure by traversing the graph, prints each figure as JSON in the
-expected shape, and reconciles all thirteen against the selected firm's answer key. Both firms
-reconcile fully. The firm is chosen with `--firm=firm_A` or `--firm=firm_B`, and the only thing that
-changes between the two runs is which configuration file is read. A sample figure looks like this:
+expected shape, reconciles all thirteen against the selected firm's answer key, checks that each is
+traceable, generates narrative commentary and runs the firewall over it, and writes an append-only
+audit record of the run under `artifacts/audit/`. Both firms reconcile fully. The firm is chosen with
+`--firm=firm_A` or `--firm=firm_B`, and the only thing that changes between the two runs is which
+configuration file is read. A sample figure looks like this:
 
 ```json
 {
@@ -378,7 +406,8 @@ calculation method; it never produces a figure.
 | Reconciliation to both firms' answer keys | All thirteen figures match for each firm |
 | Reproducibility of figures across runs | Confirmed byte-for-byte |
 | Configuration-driven switching to the second firm | Working from one build, no code change |
-| Narrative firewall check and append-only audit log | Planned |
+| Reconciliation, traceability, and firewall checks on every run | Working |
+| Append-only audit log of the whole run | Working |
 
 ## Notes on scope and security
 
