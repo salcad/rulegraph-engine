@@ -4,8 +4,11 @@ import com.interopera.rulegraph.audit.AuditEvent;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.evaluation.TraceabilityChecker;
 import com.interopera.rulegraph.firmconfig.FirmConfig;
+import com.interopera.rulegraph.graph.extraction.LlmRuleExtractor;
 import com.interopera.rulegraph.narrative.NarrativeFirewall;
 import com.interopera.rulegraph.reconciliation.ReconciliationService;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
 
@@ -21,7 +24,10 @@ public record ReportBundle(
         ReconciliationService.Report reconciliation,
         TraceabilityChecker.Report traceability,
         Firewall firewall,
-        List<AuditEvent> audit
+        List<AuditEvent> audit,
+        // The LLM prompt/reply exchange, present only for an LLM run; omitted for a seed run so the
+        // viewer shows the exchange popup only when the operator actually picked the LLM extractor.
+        @JsonInclude(JsonInclude.Include.NON_NULL) LlmRuleExtractor.LlmExchange llmExchange
 ) {
     /** The generated commentary together with the firewall check over it. */
     public record Firewall(String narrative, NarrativeFirewall.Report check) {

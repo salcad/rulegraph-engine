@@ -41,6 +41,11 @@ services:
       # Allowed CORS origins for direct browser-to-backend calls. Includes the local Vite dev server
       # (5173) and preview (4173) so the UI works in development; add your deployed origins here too.
       RULEGRAPH_CORS_ORIGINS: "https://*.vercel.app,http://localhost:5173,http://localhost:4173"
+      # OpenRouter API key for the LLM rule extractor. Export OPENROUTER_API_KEY in your shell so it
+      # passes through at `docker compose up` time. When unset the app just falls back to the seed
+      # extractor, so a missing key won't block boot.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      RULEGRAPH_LLM_ENABLED: ${RULEGRAPH_LLM_ENABLED:-false}
     depends_on:
       neo4j:
         condition: service_healthy

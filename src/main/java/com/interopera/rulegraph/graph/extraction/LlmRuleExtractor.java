@@ -11,8 +11,6 @@ import com.interopera.rulegraph.domain.RuleIntent;
 import com.interopera.rulegraph.domain.RuleType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -49,10 +47,12 @@ import java.util.Set;
  *
  * <p><b>Offline fallback.</b> If the API key is absent, or the call or parse fails for any reason,
  * this extractor logs a warning and delegates to {@link SeedRuleExtractor} so the system still runs.
+ *
+ * <p>Both this and {@link SeedRuleExtractor} are always registered as beans; the active one is chosen
+ * per run (see {@link ExtractorMode}) rather than by a startup-time condition, so the report viewer
+ * can switch between hardcoded and LLM extraction without a restart.
  */
 @Component
-@Primary
-@ConditionalOnProperty(prefix = "rulegraph.llm", name = "enabled", havingValue = "true")
 public class LlmRuleExtractor implements RuleExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(LlmRuleExtractor.class);
@@ -73,32 +73,68 @@ public class LlmRuleExtractor implements RuleExtractor {
 
     @Override
     public List<RuleIntent> extract(List<GuidelineChunk> chunks, List<String> knownAssetClassCodes) {
+        return extractWithExchange(chunks, knownAssetClassCodes).intents();
+    }
+
+    /**
+     * Like {@link #extract}, but also returns the verbatim prompt sent to the model and the raw reply
+     * it returned (or the reason extraction fell back to the seed extractor), so the report viewer can
+     * show the operator exactly what was asked and answered when they pick the LLM extractor.
+     */
+    public Extraction extractWithExchange(List<GuidelineChunk> chunks,
+                                          List<String> knownAssetClassCodes) {
+        String systemPrompt = systemPrompt();
+        String userPrompt = userPrompt(chunks, knownAssetClassCodes);
+
         if (!props.hasApiKey()) {
             log.warn("rulegraph.llm.enabled=true but no API key is set — falling back to the "
                     + "deterministic seed extractor. Set OPENROUTER_API_KEY to use the LLM.");
-            return fallback.extract(chunks, knownAssetClassCodes);
+            return new Extraction(fallback.extract(chunks, knownAssetClassCodes),
+                    new LlmExchange(props.model(), systemPrompt, userPrompt, "", true,
+                            "No API key is set, so no request was made. Fell back to the "
+                                    + "deterministic seed extractor. Set OPENROUTER_API_KEY to use "
+                                    + "the LLM."));
         }
         try {
-            String content = callModel(chunks, knownAssetClassCodes);
+            String content = callModel(systemPrompt, userPrompt);
             List<RuleIntent> intents = parseIntents(content, chunks);
             if (intents.isEmpty()) {
                 log.warn("LLM returned no usable rule intents — falling back to the seed extractor");
-                return fallback.extract(chunks, knownAssetClassCodes);
+                return new Extraction(fallback.extract(chunks, knownAssetClassCodes),
+                        new LlmExchange(props.model(), systemPrompt, userPrompt, content, true,
+                                "The model returned no usable rule intents. Fell back to the seed "
+                                        + "extractor."));
             }
             log.info("LLM extractor produced {} rule intent(s) from {} chunks via model {}",
                     intents.size(), chunks.size(), props.model());
-            return intents;
+            return new Extraction(intents,
+                    new LlmExchange(props.model(), systemPrompt, userPrompt, content, false, null));
         } catch (Exception e) {
             log.warn("LLM extraction failed ({}: {}) — falling back to the seed extractor",
                     e.getClass().getSimpleName(), e.getMessage());
-            return fallback.extract(chunks, knownAssetClassCodes);
+            return new Extraction(fallback.extract(chunks, knownAssetClassCodes),
+                    new LlmExchange(props.model(), systemPrompt, userPrompt, "", true,
+                            "LLM extraction failed (" + e.getClass().getSimpleName() + ": "
+                                    + e.getMessage() + "). Fell back to the seed extractor."));
         }
+    }
+
+    /** Intents plus the record of the prompt/reply exchange that produced them. */
+    public record Extraction(List<RuleIntent> intents, LlmExchange exchange) {
+    }
+
+    /**
+     * The verbatim prompt sent to the model and the reply it returned, for display in the viewer.
+     * {@code fellBack} is true when the seed extractor produced the intents instead (no key, an error,
+     * or an empty result); {@code note} then explains why. The API key is never included.
+     */
+    public record LlmExchange(String model, String systemPrompt, String userPrompt, String reply,
+                              boolean fellBack, String note) {
     }
 
     // --- OpenRouter call -----------------------------------------------------------------------
 
-    private String callModel(List<GuidelineChunk> chunks, List<String> knownAssetClassCodes)
-            throws Exception {
+    private String callModel(String systemPrompt, String userPrompt) throws Exception {
         ObjectNode body = mapper.createObjectNode();
         body.put("model", props.model());
         body.put("temperature", 0);
@@ -107,10 +143,10 @@ public class LlmRuleExtractor implements RuleExtractor {
         ArrayNode messages = body.putArray("messages");
         ObjectNode system = messages.addObject();
         system.put("role", "system");
-        system.put("content", systemPrompt());
+        system.put("content", systemPrompt);
         ObjectNode user = messages.addObject();
         user.put("role", "user");
-        user.put("content", userPrompt(chunks, knownAssetClassCodes));
+        user.put("content", userPrompt);
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(props.chatCompletionsUrl()))
@@ -152,6 +188,13 @@ public class LlmRuleExtractor implements RuleExtractor {
                   invent a chunk id. If you cannot locate the passage, omit the rule.
                 - Use null for a missing min or max bound.
                 - "extraction_confidence" is your own 0.0-1.0 confidence that the rule was read correctly.
+                - Emit AT MOST ONE rule per target_code. If the text states more than one threshold for
+                  the same limited thing (for example a normal-conditions and a stress-conditions
+                  liquidity floor), emit only the standard / normal-conditions rule and ignore the
+                  conditional variant — do not emit a second rule with the same target_code.
+                - Group concentration of government-related entities (GREs) uses target_code
+                  "gre_issuer" with formula_key GROUP_CONCENTRATION (it rolls issuers up to their parent
+                  group). Use ISSUER_CONCENTRATION only for a single, ungrouped issuer.
 
                 Field meaning:
                 - min_value: lower bound of an allocation band or a floor; null if none.
@@ -159,7 +202,7 @@ public class LlmRuleExtractor implements RuleExtractor {
                 - unit: e.g. PERCENT, YEARS, SGD_PER_BP.
                 - contributing_codes: asset-class codes that feed an aggregate (EXPOSURE_LIMIT / LIQUIDITY_FLOOR).
                 - target_code: snake_case code of the limited thing, e.g. high_yield,
-                  aggregate_non_ig_exposure, single_corporate_issuer, liquid_assets_ratio,
+                  aggregate_non_ig_exposure, single_corporate_issuer, gre_issuer, liquid_assets_ratio,
                   modified_duration, portfolio_dv01.
 
                 Respond with a single JSON object of the form:
@@ -199,18 +242,29 @@ public class LlmRuleExtractor implements RuleExtractor {
             validChunkIds.add(c.chunkId());
         }
 
-        JsonNode root = mapper.readTree(content);
+        JsonNode root = mapper.readTree(stripCodeFences(content));
         JsonNode intentsNode = root.has("intents") ? root.get("intents") : root;
         if (!intentsNode.isArray()) {
             throw new IllegalStateException("Expected an 'intents' array in the model output");
         }
 
         List<RuleIntent> intents = new ArrayList<>();
+        Set<String> seenCodes = new LinkedHashSet<>();
         for (JsonNode node : intentsNode) {
             RuleIntent intent = toIntent(node, validChunkIds);
-            if (intent != null) {
-                intents.add(intent);
+            if (intent == null) {
+                continue;
             }
+            // Gate G1b: one rule per target_code. A second intent for a code already seen (e.g. the
+            // model emitting both the normal and stress liquidity floor as "liquid_assets_ratio")
+            // would otherwise merge onto the same graph node, overwrite its limit, and surface as two
+            // corrupted figures. Keep the first, drop the rest.
+            if (!seenCodes.add(intent.targetCode())) {
+                log.warn("Dropping duplicate LLM intent for target_code '{}' — only the first rule "
+                        + "for a code is kept", intent.targetCode());
+                continue;
+            }
+            intents.add(intent);
         }
         return intents;
     }
@@ -246,6 +300,27 @@ public class LlmRuleExtractor implements RuleExtractor {
                 chunkId,
                 textOr(node, "passage_summary", ""),
                 confidence(node));
+    }
+
+    /**
+     * Strips a Markdown code fence around the model's JSON. Despite the {@code json_object} response
+     * format, some models still wrap the body in ```json ... ``` (or plain ``` ... ```), whose
+     * backtick makes Jackson fail at column 1. We unwrap the first fenced block and parse its contents;
+     * the raw, unstripped reply is still what the viewer shows.
+     */
+    private static String stripCodeFences(String raw) {
+        String s = raw.strip();
+        if (!s.startsWith("```")) {
+            return s;
+        }
+        // Drop the opening fence line (``` or ```json), then everything from the closing fence on.
+        int firstNewline = s.indexOf('\n');
+        s = firstNewline < 0 ? "" : s.substring(firstNewline + 1);
+        int closingFence = s.lastIndexOf("```");
+        if (closingFence >= 0) {
+            s = s.substring(0, closingFence);
+        }
+        return s.strip();
     }
 
     // --- small JSON helpers --------------------------------------------------------------------

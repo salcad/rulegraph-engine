@@ -2,6 +2,7 @@ package com.interopera.rulegraph.api;
 
 import com.interopera.rulegraph.export.ReportBundle;
 import com.interopera.rulegraph.firmconfig.FirmConfigException;
+import com.interopera.rulegraph.graph.extraction.ExtractorMode;
 import com.interopera.rulegraph.service.ReportService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -34,10 +35,16 @@ public class ReportController {
         return List.of("firm_A", "firm_B");
     }
 
-    /** Runs the full pipeline for a firm and returns the report bundle. */
+    /**
+     * Runs the full pipeline for a firm and returns the report bundle. The optional {@code extractor}
+     * parameter ({@code seed} or {@code llm}) chooses the rule extractor for this run; when omitted or
+     * unrecognised the configured default is used.
+     */
     @GetMapping("/report")
-    public ReportBundle report(@RequestParam(defaultValue = "firm_A") String firm) {
-        return reportService.run(firm);
+    public ReportBundle report(@RequestParam(defaultValue = "firm_A") String firm,
+                               @RequestParam(required = false) String extractor) {
+        ExtractorMode mode = ExtractorMode.parse(extractor, null);
+        return reportService.run(firm, mode);
     }
 
     @ResponseStatus(HttpStatus.BAD_REQUEST)

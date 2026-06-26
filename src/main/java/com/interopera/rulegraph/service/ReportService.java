@@ -12,6 +12,7 @@ import com.interopera.rulegraph.evaluation.TraceabilityChecker;
 import com.interopera.rulegraph.export.ReportBundle;
 import com.interopera.rulegraph.firmconfig.FirmConfig;
 import com.interopera.rulegraph.firmconfig.FirmConfigLoader;
+import com.interopera.rulegraph.graph.extraction.ExtractorMode;
 import com.interopera.rulegraph.ingestion.IngestionService;
 import com.interopera.rulegraph.ingestion.IngestionService.IngestionResult;
 import com.interopera.rulegraph.narrative.NarrativeFirewall;
@@ -88,9 +89,15 @@ public class ReportService {
         return figures;
     }
 
+    /** Runs the pipeline for a firm using the configured default extractor. */
+    public ReportBundle run(String firmId) {
+        return run(firmId, null);
+    }
+
     /** Runs the pipeline for a firm and returns the bundle. Synchronised so concurrent API calls do
-     *  not interleave a graph rebuild. */
-    public synchronized ReportBundle run(String firmId) {
+     *  not interleave a graph rebuild. The {@code extractorMode} chooses the rule extractor for this
+     *  run (hardcoded vs LLM); a {@code null} mode follows the configured default. */
+    public synchronized ReportBundle run(String firmId, ExtractorMode extractorMode) {
         String runId = firmId + "-" + System.currentTimeMillis();
         auditLog.append(runId, AuditEventType.RUN_STARTED, Map.of("firm", firmId));
 
@@ -101,8 +108,9 @@ public class ReportService {
                 "gre_group_by", firm.greGroupBy().name(),
                 "utilization_format", firm.utilizationFormat().name()));
 
-        IngestionResult ingest = ingestionService.ingest();
+        IngestionResult ingest = ingestionService.ingest(extractorMode);
         auditLog.append(runId, AuditEventType.GRAPH_CONSTRUCTED, Map.of(
+                "rule_extractor", ingest.extractor().name(),
                 "graph_nodes", ingest.graphNodes(), "graph_edges", ingest.graphEdges(),
                 "chunks", ingest.chunks(), "positions", ingest.positions()));
 
@@ -136,8 +144,11 @@ public class ReportService {
         auditLog.append(runId, AuditEventType.REPORT_EXPORTED,
                 Map.of("path", "artifacts/exports/report-" + firmId + ".json"));
 
+        // Only surface the LLM exchange when this run actually performed the extraction; on a cache
+        // reuse (e.g. a firm switch) the LLM did not run, so the viewer should not pop the dialog.
         ReportBundle bundle = new ReportBundle(firm, figures, reconciliation, traceability,
-                new ReportBundle.Firewall(narrative, firewall), auditLog.readAll(runId));
+                new ReportBundle.Firewall(narrative, firewall), auditLog.readAll(runId),
+                ingest.freshlyBuilt() ? ingest.llmExchange() : null);
         writeBundle(firmId, bundle);
         return bundle;
     }
