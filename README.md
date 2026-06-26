@@ -11,6 +11,11 @@ the calculation engine rather than by a language model.
 This repository contains the backend engine. It is built with Java 21 and Spring Boot, stores the
 knowledge graph in Neo4j, and uses Apache PDFBox and Commons CSV to read the source materials.
 
+The design documents are under `docs/`: the process flows and audit event catalogue
+([docs/01_flow_and_audit_events.md](docs/01_flow_and_audit_events.md)), the architecture
+([docs/02_architecture.md](docs/02_architecture.md)), and the design memo
+([docs/03_rfc.md](docs/03_rfc.md)).
+
 ## The problem this solves
 
 A fund administrator runs a portfolio against a book of rules and must periodically report, for each
@@ -296,10 +301,21 @@ report was produced. The computed figures themselves are also written to `artifa
 
 ## Running the engine
 
+This module is self-contained: its `docker-compose.yml` can bring up the whole backend (Neo4j plus
+the engine API), or just Neo4j when you want to run the jar yourself during development.
+
+To run the whole backend in Docker:
+
+```bash
+docker compose up -d --build
+```
+
+For local development where you run the jar yourself, start only Neo4j:
+
 ### Step 1: start Neo4j
 
 ```bash
-docker compose up -d
+docker compose up -d neo4j
 ```
 
 This starts a local Neo4j instance with the Bolt protocol on port 7687 and the browser UI on port
@@ -356,8 +372,33 @@ configuration file is read. A sample figure looks like this:
 }
 ```
 
-Started without an argument, the application boots and does nothing further, so it makes no database
-calls during a plain startup or during tests.
+The command-line report is a one-shot: it runs, prints, and exits.
+
+## Running as a web API
+
+Started without a command argument, the application runs as a web server instead of exiting, and
+serves the report viewer.
+
+```bash
+NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar
+```
+
+It exposes two endpoints on port 8080:
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/firms` | the firms that can be reported, for the viewer's firm switch |
+| `GET /api/report?firm=firm_A` | the full report bundle for a firm: figures, reconciliation, traceability, firewall, narrative, and audit events |
+| `GET /api/graph` | the connected knowledge graph (nodes and edges) for the viewer's graph view |
+
+Allowed CORS origins default to the local dev servers and can be set with `RULEGRAPH_CORS_ORIGINS`
+(a comma-separated list of origin patterns) when the viewer is hosted elsewhere.
+
+Each call to `/api/report` runs the same pipeline the command line does, so the API and the command
+line always produce identical results. The response is the same JSON the command line writes to
+`artifacts/exports/report-<firm>.json`. The companion viewer in the `rulegraph-ui` project calls this
+API during development (through a dev-server proxy) and falls back to the exported files if the
+backend is not running.
 
 ### Configuration
 

@@ -17,7 +17,7 @@ class HoldingsCsvParserTest {
 
     private static final String SAMPLE_DOCS = System.getProperty(
             "rulegraph.sampleDocs",
-            "/home/salcad/interopera-homework/rulegraph-docs/sample_docs/sample_docs");
+            "sample_docs");
 
     private HoldingsCsvParser parser() {
         return new HoldingsCsvParser(new RuleGraphProperties(

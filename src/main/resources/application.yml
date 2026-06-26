@@ -1,6 +1,11 @@
 spring:
   application:
     name: rulegraph-engine
+  jackson:
+    # API responses use snake_case to match the report bundle the viewer reads.
+    property-naming-strategy: SNAKE_CASE
+    serialization:
+      indent-output: true
   neo4j:
     uri: ${NEO4J_URI:bolt://localhost:7687}
     authentication:
@@ -9,7 +14,8 @@ spring:
 
 # RuleGraph application settings. Point sample-docs-path at the provided materials.
 rulegraph:
-  sample-docs-path: ${RULEGRAPH_SAMPLE_DOCS:/home/salcad/interopera-homework/rulegraph-docs/sample_docs/sample_docs}
+  # Defaults to the sample_docs folder bundled in this repository. Override for other locations.
+  sample-docs-path: ${RULEGRAPH_SAMPLE_DOCS:sample_docs}
   guidelines-pdf: sample_fund_guidelines.pdf
   holdings-csv: sample_holdings.csv
   # Optional external directory of per-firm YAML files. When empty, configs load from the bundled

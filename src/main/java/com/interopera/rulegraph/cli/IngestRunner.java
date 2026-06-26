@@ -27,10 +27,13 @@ public class IngestRunner implements ApplicationRunner {
 
     private final IngestionService ingestionService;
     private final GraphQueryService queryService;
+    private final org.springframework.context.ApplicationContext context;
 
-    public IngestRunner(IngestionService ingestionService, GraphQueryService queryService) {
+    public IngestRunner(IngestionService ingestionService, GraphQueryService queryService,
+                        org.springframework.context.ApplicationContext context) {
         this.ingestionService = ingestionService;
         this.queryService = queryService;
+        this.context = context;
     }
 
     @Override
@@ -55,5 +58,8 @@ public class IngestRunner implements ApplicationRunner {
         log.info("=== Multi-hop: non-IG aggregate contributors ===");
         log.info("contributors={}", contributors);
         log.info("source={}", queryService.sourceChunkFor("aggregate_non_ig_exposure"));
+
+        // One-shot command: exit so the web server does not stay up.
+        System.exit(org.springframework.boot.SpringApplication.exit(context, () -> 0));
     }
 }

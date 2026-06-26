@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class AnswerKeyXlsxReaderTest {
 
     private static final String XLSX = System.getProperty("rulegraph.sampleDocs",
-            "/home/salcad/interopera-homework/rulegraph-docs/sample_docs/sample_docs")
+            "sample_docs")
             + "/firm_A_answer_key.xlsx";
 
     @Test
