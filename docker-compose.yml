@@ -38,8 +38,9 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: password123
       RULEGRAPH_SAMPLE_DOCS: /app/sample_docs
-      # Only needed for direct browser-to-backend calls (Option B in DEPLOY.md):
-      RULEGRAPH_CORS_ORIGINS: "https://*.vercel.app"
+      # Allowed CORS origins for direct browser-to-backend calls. Includes the local Vite dev server
+      # (5173) and preview (4173) so the UI works in development; add your deployed origins here too.
+      RULEGRAPH_CORS_ORIGINS: "https://*.vercel.app,http://localhost:5173,http://localhost:4173"
     depends_on:
       neo4j:
         condition: service_healthy

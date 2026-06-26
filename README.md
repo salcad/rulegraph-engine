@@ -442,21 +442,13 @@ The viewer's **Method DSL** tab posts the draft to the API on each edit and rend
 the compiled config, a plain-English explanation, any per-line errors, and — best-effort against the
 current graph — the figures those conventions would produce. Endpoints:
 
-| Method | Path                               | Purpose                                                     |
-|--------|------------------------------------|-------------------------------------------------------------|
-| `POST` | `/api/firm-method/preview`         | Compile DSL to config, explanation, errors, figures effect  |
-| `GET`  | `/api/firm-method/dsl?firm=firm_A` | Canonical DSL for a known firm, to seed the editor          |
-| `POST` | `/api/firm-method/save`            | Persist a valid method as a firm; returns the new firm list |
+| Method | Path                               | Purpose                                                    |
+|--------|------------------------------------|------------------------------------------------------------|
+| `POST` | `/api/firm-method/preview`         | Compile DSL to config, explanation, errors, figures effect |
+| `GET`  | `/api/firm-method/dsl?firm=firm_A` | Canonical DSL for a known firm, to seed the editor         |
 
 The preview is a draft view: it recomputes figures from the existing graph without rebuilding it and
 writes nothing to the audit log. The compiler (`FirmMethodDsl`) is covered by unit tests.
-
-**Save as firm.** A valid method can be saved from the editor. It is written as a normal firm YAML to
-the writable firms directory — the configured `firms-path`, or `artifacts/firms` by default — so it is
-immediately loadable and appears in `GET /api/firms` and the viewer's firm switcher, with no rebuild.
-The canonical `firm_A` / `firm_B` ids are reserved and cannot be overwritten. This is the same
-configuration mechanism as the bundled firms, so a saved firm satisfies the no-code-edit switch
-(constraint 5) exactly as `firm_B` does.
 
 ## Testing
 

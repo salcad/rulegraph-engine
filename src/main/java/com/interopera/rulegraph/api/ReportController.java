@@ -2,7 +2,6 @@ package com.interopera.rulegraph.api;
 
 import com.interopera.rulegraph.export.ReportBundle;
 import com.interopera.rulegraph.firmconfig.FirmConfigException;
-import com.interopera.rulegraph.firmconfig.FirmConfigLoader;
 import com.interopera.rulegraph.service.ReportService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,17 +23,15 @@ import java.util.Map;
 public class ReportController {
 
     private final ReportService reportService;
-    private final FirmConfigLoader firmConfigLoader;
 
-    public ReportController(ReportService reportService, FirmConfigLoader firmConfigLoader) {
+    public ReportController(ReportService reportService) {
         this.reportService = reportService;
-        this.firmConfigLoader = firmConfigLoader;
     }
 
-    /** The firms that can be reported (bundled + saved), for the viewer's firm switch. */
+    /** The firms that can be reported, for the viewer's firm switch. */
     @GetMapping("/firms")
     public List<String> firms() {
-        return firmConfigLoader.listFirms();
+        return List.of("firm_A", "firm_B");
     }
 
     /** Runs the full pipeline for a firm and returns the report bundle. */
