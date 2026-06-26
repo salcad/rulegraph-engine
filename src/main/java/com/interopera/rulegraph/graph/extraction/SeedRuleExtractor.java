@@ -29,7 +29,8 @@ public class SeedRuleExtractor implements RuleExtractor {
     private static final String PCT = "PERCENT";
 
     @Override
-    public List<RuleIntent> extract(List<GuidelineChunk> chunks) {
+    public List<RuleIntent> extract(List<GuidelineChunk> chunks, List<String> knownAssetClassCodes) {
+        // The seed set already uses the canonical codes, so the holdings vocabulary is not needed here.
         List<RuleIntent> intents = new ArrayList<>();
 
         // --- Section 2: per-asset-class allocation bands (min/max % of NAV) ---

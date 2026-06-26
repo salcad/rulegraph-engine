@@ -18,8 +18,13 @@ import java.util.List;
 public interface RuleExtractor {
 
     /**
-     * @param chunks all chunks parsed from the guidelines document
+     * @param chunks                all chunks parsed from the guidelines document
+     * @param knownAssetClassCodes  the canonical asset-class codes present in the holdings snapshot.
+     *                              An LLM-backed extractor constrains the {@code targetCode} /
+     *                              {@code contributingCodes} it emits to this vocabulary so that a
+     *                              limit and the positions it governs resolve to the same graph node;
+     *                              a deterministic extractor may ignore it.
      * @return the rule intents extracted from them, each linked to its source chunk
      */
-    List<RuleIntent> extract(List<GuidelineChunk> chunks);
+    List<RuleIntent> extract(List<GuidelineChunk> chunks, List<String> knownAssetClassCodes);
 }

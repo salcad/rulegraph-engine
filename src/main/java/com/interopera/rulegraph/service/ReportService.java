@@ -69,6 +69,21 @@ public class ReportService {
         this.auditLog = auditLog;
     }
 
+    /**
+     * Recomputes the figures for an ad-hoc {@link FirmConfig} against the <em>current</em> graph,
+     * without rebuilding it — the cheap path behind the firm-method live preview. If the graph has
+     * not been built yet, it is ingested once. No reconciliation, narrative, or audit write happens:
+     * this is a draft "what would these conventions produce" view, not a committed run.
+     */
+    public synchronized List<FigureResult> previewFigures(FirmConfig firm) {
+        List<FigureResult> figures = computationService.computeAll(firm);
+        if (figures.isEmpty()) {
+            ingestionService.ingest();
+            figures = computationService.computeAll(firm);
+        }
+        return figures;
+    }
+
     /** Runs the pipeline for a firm and returns the bundle. Synchronised so concurrent API calls do
      *  not interleave a graph rebuild. */
     public synchronized ReportBundle run(String firmId) {

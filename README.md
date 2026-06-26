@@ -412,10 +412,51 @@ variables.
 | Neo4j username | `NEO4J_USER` | `neo4j` |
 | Neo4j password | `NEO4J_PASSWORD` | `password123` |
 | External directory of per-firm YAML files | `RULEGRAPH_FIRMS_DIR` | unset, so firms load from the bundled `firms/` resources |
+| External asset-class code mapping file | `RULEGRAPH_ASSET_CLASS_CODES` | unset, so the bundled `asset_class_codes.yaml` is used |
 
 The per-firm method files live under `src/main/resources/firms/` (`firm_A.yaml` and `firm_B.yaml`).
 Each declares the three settings that distinguish a firm. Pointing `RULEGRAPH_FIRMS_DIR` at an
 external folder lets new firms be added without rebuilding the application.
+
+The mapping from raw holdings asset-class labels to canonical codes is data-driven too: alias rules
+live in `src/main/resources/asset_class_codes.yaml` (a label resolves to the first code one of whose
+`match` substrings it contains; an unmatched label falls back to a slugified form). Editing that file
+— or pointing `RULEGRAPH_ASSET_CLASS_CODES` at an external copy — supports a different fund's
+vocabulary without an engine-code change.
+
+## Firm-method mini-DSL with live preview
+
+A firm's method can also be expressed in a small line-oriented DSL — a friendlier alternative to the
+per-firm YAML for the same three conventions, and still pure configuration (compiling it never edits
+a calculator):
+
+```text
+firm acme_capital
+fallen_angels include    # include | exclude
+gre by parent            # by issuer | by parent
+utilization bps          # percent | bps
+```
+
+Omitted directives fall back to Firm A's defaults; unknown directives or values are reported per line.
+The viewer's **Method DSL** tab posts the draft to the API on each edit and renders a live preview:
+the compiled config, a plain-English explanation, any per-line errors, and — best-effort against the
+current graph — the figures those conventions would produce. Endpoints:
+
+| Method | Path                               | Purpose                                                     |
+|--------|------------------------------------|-------------------------------------------------------------|
+| `POST` | `/api/firm-method/preview`         | Compile DSL to config, explanation, errors, figures effect  |
+| `GET`  | `/api/firm-method/dsl?firm=firm_A` | Canonical DSL for a known firm, to seed the editor          |
+| `POST` | `/api/firm-method/save`            | Persist a valid method as a firm; returns the new firm list |
+
+The preview is a draft view: it recomputes figures from the existing graph without rebuilding it and
+writes nothing to the audit log. The compiler (`FirmMethodDsl`) is covered by unit tests.
+
+**Save as firm.** A valid method can be saved from the editor. It is written as a normal firm YAML to
+the writable firms directory — the configured `firms-path`, or `artifacts/firms` by default — so it is
+immediately loadable and appears in `GET /api/firms` and the viewer's firm switcher, with no rebuild.
+The canonical `firm_A` / `firm_B` ids are reserved and cannot be overwritten. This is the same
+configuration mechanism as the bundled firms, so a saved firm satisfies the no-code-edit switch
+(constraint 5) exactly as `firm_B` does.
 
 ## Testing
 
@@ -428,14 +469,34 @@ parse (including the check that net asset value sums to the expected total and t
 holding is detected), the value formatting rules that make figures reproducible and firm switching
 possible, and the breach-status logic for caps, floors, and bands.
 
-## Working with the language model offline
+## Working with the language model
 
 The point where a language model interprets guideline prose into structured rules is defined behind a
-single interface, so the system can run without any external API key. A deterministic baseline
-implementation ships the approved rule set and binds each rule to the real passage it appears in, so
-the full pipeline runs end to end offline. A model-backed implementation can be substituted behind the
-same interface with no change to anything downstream. Either way, the extractor only names a trusted
-calculation method; it never produces a figure.
+single interface (`RuleExtractor`), so the system can run with or without an external API key.
+
+- **`SeedRuleExtractor` (default, offline).** A deterministic baseline that ships the approved rule
+  set and binds each rule to the real passage it appears in, so the full pipeline runs end to end with
+  no network access and byte-identical results.
+- **`LlmRuleExtractor` (optional).** Sends the parsed guideline chunks to a frontier model through the
+  OpenRouter chat-completions API and parses the structured intents it returns. It is `@Primary` and
+  activates only when `rulegraph.llm.enabled=true`; if the API key is missing or any call/parse fails,
+  it transparently falls back to the seed extractor.
+
+Either way the extractor only *names* a trusted calculation method drawn from a fixed allow-list and
+only echoes thresholds present in the source text — it never produces a figure (constraint 3). Any
+formula key or rule type off the allow-list is dropped, and any source chunk the model invents becomes
+`chunk_unresolved`, surfacing downstream as untraceable rather than as a fabricated citation.
+
+To enable the LLM-backed extractor:
+
+```bash
+export RULEGRAPH_LLM_ENABLED=true
+export OPENROUTER_API_KEY=sk-or-...            # your OpenRouter key
+export OPENROUTER_MODEL=anthropic/claude-3.5-sonnet   # any OpenRouter model id (optional)
+```
+
+Relevant settings (see `application.yml`, prefix `rulegraph.llm`): `enabled`, `api-key`, `base-url`,
+`model`, `timeout-seconds`.
 
 ## Current status
 

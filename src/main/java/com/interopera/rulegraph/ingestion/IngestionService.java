@@ -3,6 +3,7 @@ package com.interopera.rulegraph.ingestion;
 import com.interopera.rulegraph.domain.GuidelineChunk;
 import com.interopera.rulegraph.domain.Position;
 import com.interopera.rulegraph.domain.RuleIntent;
+import com.interopera.rulegraph.graph.AssetClassCodes;
 import com.interopera.rulegraph.graph.GraphBuilderService;
 import com.interopera.rulegraph.graph.extraction.RuleExtractor;
 import org.slf4j.Logger;
@@ -24,15 +25,18 @@ public class IngestionService {
     private final HoldingsCsvParser csvParser;
     private final RuleExtractor ruleExtractor;
     private final GraphBuilderService graphBuilder;
+    private final AssetClassCodes assetClassCodes;
 
     public IngestionService(GuidelinePdfParser pdfParser,
                             HoldingsCsvParser csvParser,
                             RuleExtractor ruleExtractor,
-                            GraphBuilderService graphBuilder) {
+                            GraphBuilderService graphBuilder,
+                            AssetClassCodes assetClassCodes) {
         this.pdfParser = pdfParser;
         this.csvParser = csvParser;
         this.ruleExtractor = ruleExtractor;
         this.graphBuilder = graphBuilder;
+        this.assetClassCodes = assetClassCodes;
     }
 
     public IngestionResult ingest() {
@@ -42,7 +46,15 @@ public class IngestionService {
         List<Position> positions = csvParser.parse();
         log.info("Parsed {} holdings positions", positions.size());
 
-        List<RuleIntent> intents = ruleExtractor.extract(chunks);
+        // The asset-class vocabulary actually present in the holdings, so an LLM-backed extractor
+        // emits limit codes that resolve to the same nodes as the positions they govern.
+        List<String> assetClassVocabulary = positions.stream()
+                .map(p -> assetClassCodes.toCode(p.assetClass()))
+                .distinct()
+                .sorted()
+                .toList();
+
+        List<RuleIntent> intents = ruleExtractor.extract(chunks, assetClassVocabulary);
         log.info("Extracted {} rule intents", intents.size());
 
         long unresolved = intents.stream()

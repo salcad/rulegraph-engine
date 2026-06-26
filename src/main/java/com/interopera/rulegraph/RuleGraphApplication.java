@@ -1,5 +1,6 @@
 package com.interopera.rulegraph;
 
+import com.interopera.rulegraph.config.LlmProperties;
 import com.interopera.rulegraph.config.RuleGraphProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -12,7 +13,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * with provenance on every node and edge, queryable across multiple hops.
  */
 @SpringBootApplication
-@EnableConfigurationProperties(RuleGraphProperties.class)
+@EnableConfigurationProperties({RuleGraphProperties.class, LlmProperties.class})
 public class RuleGraphApplication {
 
     public static void main(String[] args) {

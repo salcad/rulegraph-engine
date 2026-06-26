@@ -27,15 +27,18 @@ public class GraphBuilderService {
 
     private final Driver driver;
     private final RuleGraphProperties props;
+    private final AssetClassCodes assetClassCodes;
 
     /** Breach actions + owners for risk metrics (reference data from the §3.1 table). */
     private static final Map<String, String[]> BREACH = Map.of(
             "modified_duration", new String[]{"PM notification within 1h", "Portfolio Manager"},
             "portfolio_dv01", new String[]{"Risk Committee alert", "Risk Committee"});
 
-    public GraphBuilderService(Driver driver, RuleGraphProperties props) {
+    public GraphBuilderService(Driver driver, RuleGraphProperties props,
+                               AssetClassCodes assetClassCodes) {
         this.driver = driver;
         this.props = props;
+        this.assetClassCodes = assetClassCodes;
     }
 
     /** @return a short summary of what was written (node/edge counts) */
@@ -164,7 +167,7 @@ public class GraphBuilderService {
         Map<String, Object> p = new HashMap<>();
         p.put("instrumentId", pos.instrumentId());
         p.put("instrumentName", pos.instrumentName());
-        p.put("assetCode", AssetClassCodes.toCode(pos.assetClass()));
+        p.put("assetCode", assetClassCodes.toCode(pos.assetClass()));
         p.put("issuer", pos.issuerName());
         p.put("issuerType", pos.issuerType());
         p.put("rating", pos.creditRating());

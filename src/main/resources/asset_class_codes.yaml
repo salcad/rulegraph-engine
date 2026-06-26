@@ -1,0 +1,23 @@
+# Maps raw holdings asset-class labels (the `asset_class` column of the holdings CSV) to the
+# canonical codes used by rule intents, the graph, and the answer keys. A label matches a code when
+# its lower-cased text CONTAINS any of that code's `match` substrings; the first matching entry wins,
+# so order matters (keep broad terms like "cash" last). A label that matches nothing falls back to a
+# slugified form of the label, so a new asset class still produces a usable, consistent code.
+#
+# To support a different fund's vocabulary without recompiling, edit this file or point
+# rulegraph.asset-class-codes-path (env RULEGRAPH_ASSET_CLASS_CODES) at an external copy.
+mappings:
+  - code: singapore_government_securities
+    match: ["singapore government"]
+  - code: mas_bills
+    match: ["mas bill"]
+  - code: investment_grade_corporate_bonds
+    match: ["investment grade"]
+  - code: high_yield
+    match: ["high yield"]
+  - code: foreign_currency_bonds
+    match: ["foreign currency"]
+  - code: structured_credit
+    match: ["structured credit"]
+  - code: cash
+    match: ["cash"]

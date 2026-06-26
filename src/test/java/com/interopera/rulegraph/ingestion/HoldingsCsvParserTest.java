@@ -21,7 +21,7 @@ class HoldingsCsvParserTest {
 
     private HoldingsCsvParser parser() {
         return new HoldingsCsvParser(new RuleGraphProperties(
-                SAMPLE_DOCS, "sample_fund_guidelines.pdf", "sample_holdings.csv", null));
+                SAMPLE_DOCS, "sample_fund_guidelines.pdf", "sample_holdings.csv", null, null));
     }
 
     @Test

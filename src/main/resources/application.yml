@@ -21,6 +21,20 @@ rulegraph:
   # Optional external directory of per-firm YAML files. When empty, configs load from the bundled
   # firms/ resources. Lets new firms be added without rebuilding the application.
   firms-path: ${RULEGRAPH_FIRMS_DIR:}
+  # Optional external YAML mapping raw holdings asset-class labels to canonical codes. When empty,
+  # the bundled asset_class_codes.yaml is used. Lets a new fund's vocabulary be added without a rebuild.
+  asset-class-codes-path: ${RULEGRAPH_ASSET_CLASS_CODES:}
+
+  # Optional LLM-backed rule extractor (OpenRouter). Off by default: the deterministic
+  # SeedRuleExtractor runs and no network call is made. Set enabled=true and provide an API key to
+  # have a frontier model interpret the guideline text into rule intents instead. A missing key or
+  # any call/parse failure transparently falls back to the seed extractor.
+  llm:
+    enabled: ${RULEGRAPH_LLM_ENABLED:false}
+    api-key: ${OPENROUTER_API_KEY:}
+    base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
+    model: ${OPENROUTER_MODEL:anthropic/claude-3.5-sonnet}
+    timeout-seconds: ${RULEGRAPH_LLM_TIMEOUT:60}
 
 logging:
   level:
