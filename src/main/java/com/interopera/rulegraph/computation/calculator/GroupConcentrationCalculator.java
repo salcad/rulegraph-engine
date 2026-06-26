@@ -5,12 +5,15 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
+import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.domain.FormulaKey;
 import com.interopera.rulegraph.firmconfig.FirmConfig;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,6 +26,12 @@ import java.util.Map;
 @Component
 public class GroupConcentrationCalculator implements FigureCalculator {
 
+    private final FormulaLibrary formulas;
+
+    public GroupConcentrationCalculator(FormulaLibrary formulas) {
+        this.formulas = formulas;
+    }
+
     @Override
     public FormulaKey key() {
         return FormulaKey.GROUP_CONCENTRATION;
@@ -30,12 +39,23 @@ public class GroupConcentrationCalculator implements FigureCalculator {
 
     @Override
     public FigureResult compute(ResolvedRule rule, ComputationContext ctx) {
+        // Graph traversal (per the firm's group-by convention) selects the largest group; the
+        // registry formula does the arithmetic.
         boolean byParent = ctx.firm().greGroupBy() == FirmConfig.GreGroupBy.PARENT_ISSUER;
         Map<String, BigDecimal> totals = byParent
                 ? ctx.portfolio().sumByParentIssuer("GRE")
                 : ctx.portfolio().sumByIssuer("GRE");
         Concentrations.Top top = Concentrations.largest(totals);
-        BigDecimal pct = Formatting.percentOf(top.value(), ctx.nav());
+        String subjectQuery = byParent
+                ? ctx.portfolio().sumByParentIssuerCypher("GRE")
+                : ctx.portfolio().sumByIssuerCypher("GRE");
+        List<FigureInput> inputs = List.of(
+                new FigureInput("subject_mv", top.value(),
+                        "market value of the largest GRE " + (byParent ? "group" : "issuer")
+                                + " (" + top.key() + ")", subjectQuery),
+                new FigureInput("nav", ctx.nav(), "Σ market value of all positions (NAV)",
+                        ctx.portfolio().navCypher()));
+        BigDecimal pct = formulas.evaluate(key(), FigureInput.vars(inputs));
 
         String util = Formatting.utilization(pct, rule.max(), ctx.firm());
         String limit = "max " + Formatting.percentBound(rule.max()) + "%";
@@ -47,6 +67,7 @@ public class GroupConcentrationCalculator implements FigureCalculator {
                 + ")-[:DEFINED_BY]->(GuidelineChunk:" + rule.citation().chunkId() + ")";
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct),
-                Statuses.againstMax(pct, rule.max()), limit, util, path, rule.citation(), pct);
+                Statuses.againstMax(pct, rule.max()), limit, util,
+                formulas.expression(key()), inputs, path, rule.citation(), pct);
     }
 }

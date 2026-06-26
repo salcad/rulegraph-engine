@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.interopera.rulegraph.audit.AppendOnlyAuditLog;
 import com.interopera.rulegraph.audit.AuditEventType;
 import com.interopera.rulegraph.computation.FigureComputationService;
+import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.evaluation.TraceabilityChecker;
 import com.interopera.rulegraph.export.ReportBundle;
@@ -44,6 +45,7 @@ public class ReportService {
     private final NarrativeGenerator narrativeGenerator;
     private final NarrativeFirewall narrativeFirewall;
     private final AppendOnlyAuditLog auditLog;
+    private final FormulaLibrary formulaLibrary;
 
     private final ObjectMapper json = new ObjectMapper()
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
@@ -57,7 +59,8 @@ public class ReportService {
                          TraceabilityChecker traceabilityChecker,
                          NarrativeGenerator narrativeGenerator,
                          NarrativeFirewall narrativeFirewall,
-                         AppendOnlyAuditLog auditLog) {
+                         AppendOnlyAuditLog auditLog,
+                         FormulaLibrary formulaLibrary) {
         this.ingestionService = ingestionService;
         this.computationService = computationService;
         this.firmConfigLoader = firmConfigLoader;
@@ -67,6 +70,7 @@ public class ReportService {
         this.narrativeGenerator = narrativeGenerator;
         this.narrativeFirewall = narrativeFirewall;
         this.auditLog = auditLog;
+        this.formulaLibrary = formulaLibrary;
     }
 
     /**
@@ -103,7 +107,14 @@ public class ReportService {
                 "chunks", ingest.chunks(), "positions", ingest.positions()));
 
         List<FigureResult> figures = computationService.computeAll(firm);
-        auditLog.append(runId, AuditEventType.FIGURES_COMPUTED, Map.of("count", figures.size()));
+        // Record which arithmetic produced the numbers: the verbatim formulas and a hash over them,
+        // so an examiner can confirm the figures came from these expressions and that the formula
+        // registry was not altered between runs (it sits alongside the deterministic engine, never
+        // the LLM — constraint 3).
+        auditLog.append(runId, AuditEventType.FIGURES_COMPUTED, Map.of(
+                "count", figures.size(),
+                "formulas_sha256", formulaLibrary.sha256(),
+                "formulas", formulaLibrary.expressions()));
 
         ReconciliationService.Report reconciliation =
                 reconciliationService.reconcile(figures, answerKeyProvider.forFirm(firmId));

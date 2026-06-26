@@ -5,17 +5,24 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
+import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.domain.FormulaKey;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /** Portfolio DV01 = Σ(mv × duration) × 1bp, vs the DV01 cap (Section 3.1). */
 @Component
 public class Dv01Calculator implements FigureCalculator {
 
-    private static final BigDecimal ONE_BP = new BigDecimal("0.0001");
+    private final FormulaLibrary formulas;
+
+    public Dv01Calculator(FormulaLibrary formulas) {
+        this.formulas = formulas;
+    }
 
     @Override
     public FormulaKey key() {
@@ -24,8 +31,13 @@ public class Dv01Calculator implements FigureCalculator {
 
     @Override
     public FigureResult compute(ResolvedRule rule, ComputationContext ctx) {
+        // Graph traversal supplies Σ(mv × duration); the registry formula applies the 1bp factor.
         BigDecimal weighted = ctx.portfolio().durationWeightedSum();
-        BigDecimal dv01 = weighted.multiply(ONE_BP);
+        List<FigureInput> inputs = List.of(
+                new FigureInput("duration_weighted_sum", weighted,
+                        "Σ(market value × modified duration) over all positions",
+                        ctx.portfolio().durationWeightedSumCypher()));
+        BigDecimal dv01 = formulas.evaluate(key(), FigureInput.vars(inputs));
 
         String value = "SGD " + Formatting.grouped(dv01) + " / bp";
         String limit = "max " + Formatting.grouped(rule.max());
@@ -35,6 +47,7 @@ public class Dv01Calculator implements FigureCalculator {
                 + rule.citation().chunkId() + ")";
 
         return new FigureResult(rule.code(), value,
-                Statuses.againstMax(dv01, rule.max()), limit, util, path, rule.citation(), dv01);
+                Statuses.againstMax(dv01, rule.max()), limit, util,
+                formulas.expression(key()), inputs, path, rule.citation(), dv01);
     }
 }

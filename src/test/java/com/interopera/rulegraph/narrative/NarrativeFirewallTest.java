@@ -17,9 +17,9 @@ class NarrativeFirewallTest {
     private List<FigureResult> figures() {
         return List.of(
                 new FigureResult("cash", "4.0%", FigureStatus.BREACH, "5-25%", "n/a",
-                        "path", null, new BigDecimal("4.0")),
+                        "subject_mv / nav * 100", null, "path", null, new BigDecimal("4.0")),
                 new FigureResult("aggregate_non_ig_exposure", "15.0%", FigureStatus.OK, "max 20%",
-                        "75.0%", "path", null, new BigDecimal("15.0")));
+                        "75.0%", "subject_mv / nav * 100", null, "path", null, new BigDecimal("15.0")));
     }
 
     @Test

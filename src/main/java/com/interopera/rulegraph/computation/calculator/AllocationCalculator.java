@@ -5,6 +5,8 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
+import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.domain.FigureStatus;
 import com.interopera.rulegraph.domain.FormulaKey;
@@ -17,6 +19,12 @@ import java.util.List;
 @Component
 public class AllocationCalculator implements FigureCalculator {
 
+    private final FormulaLibrary formulas;
+
+    public AllocationCalculator(FormulaLibrary formulas) {
+        this.formulas = formulas;
+    }
+
     @Override
     public FormulaKey key() {
         return FormulaKey.ALLOCATION_PERCENT;
@@ -24,8 +32,16 @@ public class AllocationCalculator implements FigureCalculator {
 
     @Override
     public FigureResult compute(ResolvedRule rule, ComputationContext ctx) {
-        BigDecimal mv = ctx.portfolio().marketValueInAssetClasses(List.of(rule.code()));
-        BigDecimal pct = Formatting.percentOf(mv, ctx.nav());
+        // Graph traversal selects the positions; the registry formula does the arithmetic.
+        List<String> codes = List.of(rule.code());
+        BigDecimal mv = ctx.portfolio().marketValueInAssetClasses(codes);
+        List<FigureInput> inputs = List.of(
+                new FigureInput("subject_mv", mv,
+                        "Σ market value of positions in asset class '" + rule.code() + "'",
+                        ctx.portfolio().marketValueInAssetClassesCypher(codes)),
+                new FigureInput("nav", ctx.nav(), "Σ market value of all positions (NAV)",
+                        ctx.portfolio().navCypher()));
+        BigDecimal pct = formulas.evaluate(key(), FigureInput.vars(inputs));
 
         FigureStatus status = allocationStatus(pct, rule.min(), rule.max());
         // When the binding constraint is the floor (and it is breached), utilization-vs-max is not
@@ -40,7 +56,7 @@ public class AllocationCalculator implements FigureCalculator {
                 + ")-[:DEFINED_BY]->(GuidelineChunk:" + rule.citation().chunkId() + ")";
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct), status,
-                limit, util, path, rule.citation(), pct);
+                limit, util, formulas.expression(key()), inputs, path, rule.citation(), pct);
     }
 
     private FigureStatus allocationStatus(BigDecimal pct, BigDecimal min, BigDecimal max) {

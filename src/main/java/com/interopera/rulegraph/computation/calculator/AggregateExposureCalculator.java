@@ -5,6 +5,8 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
+import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.domain.FigureStatus;
 import com.interopera.rulegraph.domain.FormulaKey;
@@ -24,6 +26,12 @@ import java.util.List;
 @Component
 public class AggregateExposureCalculator implements FigureCalculator {
 
+    private final FormulaLibrary formulas;
+
+    public AggregateExposureCalculator(FormulaLibrary formulas) {
+        this.formulas = formulas;
+    }
+
     @Override
     public FormulaKey key() {
         return FormulaKey.AGGREGATE_EXPOSURE_PERCENT;
@@ -31,6 +39,8 @@ public class AggregateExposureCalculator implements FigureCalculator {
 
     @Override
     public FigureResult compute(ResolvedRule rule, ComputationContext ctx) {
+        // Graph traversal (plus the firm's fallen-angel convention) selects the contributing market
+        // value; the registry formula does the arithmetic.
         List<String> contributors = rule.contributors();
         BigDecimal mv = ctx.portfolio().marketValueInAssetClasses(contributors);
 
@@ -39,13 +49,23 @@ public class AggregateExposureCalculator implements FigureCalculator {
             mv = mv.add(ctx.portfolio().fallenAngelMarketValueOutside(contributors));
         }
 
-        BigDecimal pct = Formatting.percentOf(mv, ctx.nav());
+        String subjectDesc = "Σ market value of non-IG contributing classes (" + String.join(" + ", contributors) + ")"
+                + (fallenAngels ? " plus fallen-angel positions downgraded below IG" : "");
+        String subjectQuery = ctx.portfolio().marketValueInAssetClassesCypher(contributors)
+                + (fallenAngels ? "\n\n-- plus fallen angels --\n"
+                        + ctx.portfolio().fallenAngelCypher(contributors) : "");
+        List<FigureInput> inputs = List.of(
+                new FigureInput("subject_mv", mv, subjectDesc, subjectQuery),
+                new FigureInput("nav", ctx.nav(), "Σ market value of all positions (NAV)",
+                        ctx.portfolio().navCypher()));
+        BigDecimal pct = formulas.evaluate(key(), FigureInput.vars(inputs));
         FigureStatus status = Statuses.againstMax(pct, rule.max());
         String util = Formatting.utilization(pct, rule.max(), ctx.firm());
         String limit = "max " + Formatting.percentBound(rule.max()) + "%";
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct), status,
-                limit, util, buildPath(rule, fallenAngels), rule.citation(), pct);
+                limit, util, formulas.expression(key()), inputs,
+                buildPath(rule, fallenAngels), rule.citation(), pct);
     }
 
     private String buildPath(ResolvedRule rule, boolean fallenAngels) {

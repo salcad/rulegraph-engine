@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * One computed report figure, in the shape the brief specifies.
@@ -18,23 +19,30 @@ import java.math.BigDecimal;
  * @param status       compliance status
  * @param limit        human-readable limit, e.g. {@code "max 20%"}
  * @param utilization  how much of the limit is used, e.g. {@code "75.0%"} or {@code "n/a"}
+ * @param formula      the registry (DSL) expression evaluated to produce {@code numericValue},
+ *                     e.g. {@code "subject_mv / nav * 100"}; null when ERROR
+ * @param inputs       the variables bound into {@code formula}, each with its value and how it was
+ *                     derived from the graph — so a figure is a traceable substitution; null on ERROR
  * @param graphPath    the graph traversal that produced this figure
  * @param citation     the source passage the rule was defined by
  * @param numericValue exact unrounded value (for reconciliation/firewall); null when ERROR
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({"figure", "value", "status", "limit", "utilization", "graph_path", "citation"})
+@JsonPropertyOrder({"figure", "value", "status", "limit", "utilization", "formula", "inputs",
+        "graph_path", "citation"})
 public record FigureResult(
         String figure,
         String value,
         FigureStatus status,
         String limit,
         String utilization,
+        String formula,
+        List<FigureInput> inputs,
         String graphPath,
         Citation citation,
         BigDecimal numericValue
 ) {
     public static FigureResult error(String figure, String reason) {
-        return new FigureResult(figure, null, FigureStatus.ERROR, null, reason, null, null, null);
+        return new FigureResult(figure, null, FigureStatus.ERROR, null, reason, null, null, null, null, null);
     }
 }

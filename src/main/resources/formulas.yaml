@@ -1,0 +1,35 @@
+# Trusted formula registry: the arithmetic for every reported figure, as configuration.
+#
+# WHY THIS FILE EXISTS
+# The guidelines document states each *limit* (e.g. "non-IG aggregate must not exceed 20% of NAV")
+# and which inputs feed it, but it never writes the *arithmetic* that turns holdings into a figure.
+# That arithmetic used to live inside each Java calculator. Here it is lifted into configuration so
+# an auditor can read the operation that produced a number next to the limit it is tested against,
+# without reading Java, and so the run can hash exactly which arithmetic was used (see the
+# FIGURES_COMPUTED audit event).
+#
+# WHAT STAYS IN CODE
+# Only the arithmetic moves here. Selecting *which* positions feed a figure is a graph traversal and
+# stays in the calculators (that is what makes traceability "through the graph"). Each calculator
+# binds a few scalar inputs (the variables referenced below) and asks the evaluator for the value.
+#
+# THE LANGUAGE
+# Pure decimal arithmetic only: the variables a calculator binds, numeric literals, + - * / and
+# parentheses. No functions, no I/O. Division uses the same scale/rounding the calculators always
+# used, so these formulas reproduce the existing figures digit-for-digit. Editing a formula here
+# never touches engine code (constraint 5); an unknown variable or malformed expression fails the
+# computation loudly rather than emitting a wrong number.
+#
+# BOUND VARIABLES
+#   subject_mv             market value the figure is measured over (the asset class / aggregate /
+#                          liquid bucket / largest issuer or group the graph traversal selected)
+#   nav                    net asset value (sum of all position market values)
+#   duration_weighted_sum  Σ(market_value × modified_duration) over all positions
+
+ALLOCATION_PERCENT:         subject_mv / nav * 100
+AGGREGATE_EXPOSURE_PERCENT: subject_mv / nav * 100
+ISSUER_CONCENTRATION:       subject_mv / nav * 100
+GROUP_CONCENTRATION:        subject_mv / nav * 100
+LIQUIDITY_RATIO:            subject_mv / nav * 100
+PORTFOLIO_DURATION:         duration_weighted_sum / nav
+PORTFOLIO_DV01:             duration_weighted_sum * 0.0001
