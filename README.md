@@ -383,22 +383,24 @@ serves the report viewer.
 NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar
 ```
 
-It exposes two endpoints on port 8080:
+It exposes two endpoints on port 8074:
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /api/firms` | the firms that can be reported, for the viewer's firm switch |
-| `GET /api/report?firm=firm_A` | the full report bundle for a firm: figures, reconciliation, traceability, firewall, narrative, and audit events |
-| `GET /api/graph` | the connected knowledge graph (nodes and edges) for the viewer's graph view |
+| `GET /rulegraph-api/firms` | the firms that can be reported, for the viewer's firm switch |
+| `GET /rulegraph-api/report?firm=firm_A` | the full report bundle for a firm: figures, reconciliation, traceability, firewall, narrative, and audit events |
+| `GET /rulegraph-api/graph` | the connected knowledge graph (nodes and edges) for the viewer's graph view |
 
-Allowed CORS origins default to the local dev servers and can be set with `RULEGRAPH_CORS_ORIGINS`
-(a comma-separated list of origin patterns) when the viewer is hosted elsewhere.
+The viewer calls this API directly from the browser (cross-origin), so the browser's origin must be
+allowed for CORS. Allowed origins default to the local dev servers (`http://localhost:5173` and
+`http://localhost:4173`) and can be set with `RULEGRAPH_CORS_ORIGINS` (a comma-separated list of
+origin patterns, for example `https://*.vercel.app`) when the viewer is hosted elsewhere.
 
-Each call to `/api/report` runs the same pipeline the command line does, so the API and the command
+Each call to `/rulegraph-api/report` runs the same pipeline the command line does, so the API and the command
 line always produce identical results. The response is the same JSON the command line writes to
 `artifacts/exports/report-<firm>.json`. The companion viewer in the `rulegraph-ui` project calls this
-API during development (through a dev-server proxy) and falls back to the exported files if the
-backend is not running.
+API directly (its API base is set with `VITE_API_BASE_URL`, defaulting to `http://localhost:8074`)
+and falls back to the exported files if the backend is not running.
 
 ### Configuration
 
@@ -444,8 +446,8 @@ current graph — the figures those conventions would produce. Endpoints:
 
 | Method | Path                               | Purpose                                                    |
 |--------|------------------------------------|------------------------------------------------------------|
-| `POST` | `/api/firm-method/preview`         | Compile DSL to config, explanation, errors, figures effect |
-| `GET`  | `/api/firm-method/dsl?firm=firm_A` | Canonical DSL for a known firm, to seed the editor         |
+| `POST` | `/rulegraph-api/firm-method/preview`         | Compile DSL to config, explanation, errors, figures effect |
+| `GET`  | `/rulegraph-api/firm-method/dsl?firm=firm_A` | Canonical DSL for a known firm, to seed the editor         |
 
 The preview is a draft view: it recomputes figures from the existing graph without rebuilding it and
 writes nothing to the audit log. The compiler (`FirmMethodDsl`) is covered by unit tests.

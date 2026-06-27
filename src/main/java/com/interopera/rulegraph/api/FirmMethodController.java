@@ -27,7 +27,7 @@ import java.util.List;
  * Compilation is pure configuration; no calculator changes.
  */
 @RestController
-@RequestMapping("/api/firm-method")
+@RequestMapping("/rulegraph-api/firm-method")
 public class FirmMethodController {
 
     private static final Logger log = LoggerFactory.getLogger(FirmMethodController.class);

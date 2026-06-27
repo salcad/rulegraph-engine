@@ -26,7 +26,7 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
+        registry.addMapping("/rulegraph-api/**")
                 .allowedOriginPatterns(origins)
                 // GET for reports/graph; POST for the firm-method preview and save endpoints.
                 .allowedMethods("GET", "POST", "OPTIONS")

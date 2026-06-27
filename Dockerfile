@@ -11,6 +11,6 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /build/target/rulegraph-engine-0.1.0.jar app.jar
 COPY sample_docs ./sample_docs
-EXPOSE 8080
+EXPOSE 8074
 # No command argument: the application runs as the web API server.
 ENTRYPOINT ["java", "-jar", "app.jar"]

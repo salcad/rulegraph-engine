@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
  * rule-and-position graph so it can be drawn in the browser.
  */
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/rulegraph-api")
 public class GraphController {
 
     private final GraphQueryService graphQueryService;

@@ -1,3 +1,7 @@
+server:
+  # The engine's web API listens on 8074. Override with SERVER_PORT if needed.
+  port: ${SERVER_PORT:8074}
+
 spring:
   application:
     name: rulegraph-engine

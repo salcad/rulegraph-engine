@@ -16,11 +16,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Web API for the report viewer. The viewer calls {@code /api/report?firm=...} to run the pipeline
+ * Web API for the report viewer. The viewer calls {@code /rulegraph-api/report?firm=...} to run the pipeline
  * for a firm and receive the complete bundle (figures, reconciliation, traceability, firewall, audit).
  */
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/rulegraph-api")
 public class ReportController {
 
     private final ReportService reportService;
