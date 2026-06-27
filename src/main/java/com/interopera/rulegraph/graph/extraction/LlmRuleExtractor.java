@@ -1,5 +1,6 @@
 package com.interopera.rulegraph.graph.extraction;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -13,17 +14,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 /**
  * LLM-backed {@link RuleExtractor}. It reads the parsed guideline chunks and asks a frontier model
@@ -60,12 +57,15 @@ public class LlmRuleExtractor implements RuleExtractor {
     private final LlmProperties props;
     private final SeedRuleExtractor fallback;
     private final ObjectMapper mapper;
+    private final RuleIntentJsonMapper intentMapper;
     private final HttpClient httpClient;
 
-    public LlmRuleExtractor(LlmProperties props, SeedRuleExtractor fallback, ObjectMapper mapper) {
+    public LlmRuleExtractor(LlmProperties props, SeedRuleExtractor fallback, ObjectMapper mapper,
+                            RuleIntentJsonMapper intentMapper) {
         this.props = props;
         this.fallback = fallback;
         this.mapper = mapper;
+        this.intentMapper = intentMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(Math.max(1, props.timeoutSeconds())))
                 .build();
@@ -93,29 +93,30 @@ public class LlmRuleExtractor implements RuleExtractor {
                     new LlmExchange(props.model(), systemPrompt, userPrompt, "", true,
                             "No API key is set, so no request was made. Fell back to the "
                                     + "deterministic seed extractor. Set OPENROUTER_API_KEY to use "
-                                    + "the LLM."));
+                                    + "the LLM.", fallback.rawJson()));
         }
         try {
             String content = callModel(systemPrompt, userPrompt);
-            List<RuleIntent> intents = parseIntents(content, chunks);
+            List<RuleIntent> intents = intentMapper.map(content, chunks);
             if (intents.isEmpty()) {
                 log.warn("LLM returned no usable rule intents — falling back to the seed extractor");
                 return new Extraction(fallback.extract(chunks, knownAssetClassCodes),
                         new LlmExchange(props.model(), systemPrompt, userPrompt, content, true,
                                 "The model returned no usable rule intents. Fell back to the seed "
-                                        + "extractor."));
+                                        + "extractor.", fallback.rawJson()));
             }
             log.info("LLM extractor produced {} rule intent(s) from {} chunks via model {}",
                     intents.size(), chunks.size(), props.model());
             return new Extraction(intents,
-                    new LlmExchange(props.model(), systemPrompt, userPrompt, content, false, null));
+                    new LlmExchange(props.model(), systemPrompt, userPrompt, content, false, null, null));
         } catch (Exception e) {
             log.warn("LLM extraction failed ({}: {}) — falling back to the seed extractor",
                     e.getClass().getSimpleName(), e.getMessage());
             return new Extraction(fallback.extract(chunks, knownAssetClassCodes),
                     new LlmExchange(props.model(), systemPrompt, userPrompt, "", true,
                             "LLM extraction failed (" + e.getClass().getSimpleName() + ": "
-                                    + e.getMessage() + "). Fell back to the seed extractor."));
+                                    + e.getMessage() + "). Fell back to the seed extractor.",
+                            fallback.rawJson()));
         }
     }
 
@@ -126,10 +127,13 @@ public class LlmRuleExtractor implements RuleExtractor {
     /**
      * The verbatim prompt sent to the model and the reply it returned, for display in the viewer.
      * {@code fellBack} is true when the seed extractor produced the intents instead (no key, an error,
-     * or an empty result); {@code note} then explains why. The API key is never included.
+     * or an empty result); {@code note} then explains why and {@code seedRules} carries the raw
+     * {@code seed_rules.json} actually used, so the viewer can show the cached rule set. {@code seedRules}
+     * is null on a successful LLM run. The API key is never included.
      */
     public record LlmExchange(String model, String systemPrompt, String userPrompt, String reply,
-                              boolean fellBack, String note) {
+                              boolean fellBack, String note,
+                              @JsonInclude(JsonInclude.Include.NON_NULL) String seedRules) {
     }
 
     // --- OpenRouter call -----------------------------------------------------------------------
@@ -233,150 +237,7 @@ public class LlmRuleExtractor implements RuleExtractor {
         return sb.toString();
     }
 
-    // --- Parsing + allow-list validation -------------------------------------------------------
-
-    private List<RuleIntent> parseIntents(String content, List<GuidelineChunk> chunks)
-            throws Exception {
-        Set<String> validChunkIds = new LinkedHashSet<>();
-        for (GuidelineChunk c : chunks) {
-            validChunkIds.add(c.chunkId());
-        }
-
-        JsonNode root = mapper.readTree(stripCodeFences(content));
-        JsonNode intentsNode = root.has("intents") ? root.get("intents") : root;
-        if (!intentsNode.isArray()) {
-            throw new IllegalStateException("Expected an 'intents' array in the model output");
-        }
-
-        List<RuleIntent> intents = new ArrayList<>();
-        Set<String> seenCodes = new LinkedHashSet<>();
-        for (JsonNode node : intentsNode) {
-            RuleIntent intent = toIntent(node, validChunkIds);
-            if (intent == null) {
-                continue;
-            }
-            // Gate G1b: one rule per target_code. A second intent for a code already seen (e.g. the
-            // model emitting both the normal and stress liquidity floor as "liquid_assets_ratio")
-            // would otherwise merge onto the same graph node, overwrite its limit, and surface as two
-            // corrupted figures. Keep the first, drop the rest.
-            if (!seenCodes.add(intent.targetCode())) {
-                log.warn("Dropping duplicate LLM intent for target_code '{}' — only the first rule "
-                        + "for a code is kept", intent.targetCode());
-                continue;
-            }
-            intents.add(intent);
-        }
-        return intents;
-    }
-
-    /** Maps one JSON node to a validated intent, or {@code null} if it fails allow-list checks. */
-    private RuleIntent toIntent(JsonNode node, Set<String> validChunkIds) {
-        RuleType ruleType = parseEnum(RuleType.class, text(node, "rule_type"));
-        FormulaKey formulaKey = parseEnum(FormulaKey.class, text(node, "formula_key"));
-        String targetCode = text(node, "target_code");
-
-        // Gate G1: reject anything whose type or formula is not on the trusted allow-list, and any
-        // rule without a target — these can never reach a calculator.
-        if (ruleType == null || formulaKey == null || targetCode == null || targetCode.isBlank()) {
-            log.warn("Dropping LLM intent with off-list or incomplete fields: {}", node);
-            return null;
-        }
-
-        String chunkId = text(node, "source_chunk_id");
-        if (chunkId == null || !validChunkIds.contains(chunkId)) {
-            // Keep the rule but mark provenance unresolved, matching the seed extractor's contract:
-            // it surfaces downstream as untraceable rather than a fabricated citation.
-            chunkId = "chunk_unresolved";
-        }
-
-        return new RuleIntent(
-                ruleType,
-                targetCode.trim(),
-                formulaKey,
-                decimal(node, "min_value"),
-                decimal(node, "max_value"),
-                textOr(node, "unit", "PERCENT"),
-                stringList(node, "contributing_codes"),
-                chunkId,
-                textOr(node, "passage_summary", ""),
-                confidence(node));
-    }
-
-    /**
-     * Strips a Markdown code fence around the model's JSON. Despite the {@code json_object} response
-     * format, some models still wrap the body in ```json ... ``` (or plain ``` ... ```), whose
-     * backtick makes Jackson fail at column 1. We unwrap the first fenced block and parse its contents;
-     * the raw, unstripped reply is still what the viewer shows.
-     */
-    private static String stripCodeFences(String raw) {
-        String s = raw.strip();
-        if (!s.startsWith("```")) {
-            return s;
-        }
-        // Drop the opening fence line (``` or ```json), then everything from the closing fence on.
-        int firstNewline = s.indexOf('\n');
-        s = firstNewline < 0 ? "" : s.substring(firstNewline + 1);
-        int closingFence = s.lastIndexOf("```");
-        if (closingFence >= 0) {
-            s = s.substring(0, closingFence);
-        }
-        return s.strip();
-    }
-
-    // --- small JSON helpers --------------------------------------------------------------------
-
-    private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return Enum.valueOf(type, raw.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    private static String text(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        return v == null || v.isNull() ? null : v.asText();
-    }
-
-    private static String textOr(JsonNode node, String field, String dflt) {
-        String v = text(node, field);
-        return v == null || v.isBlank() ? dflt : v;
-    }
-
-    private static BigDecimal decimal(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || v.isNull()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(v.asText().trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static List<String> stringList(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || !v.isArray()) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>();
-        for (JsonNode el : v) {
-            if (!el.isNull() && !el.asText().isBlank()) {
-                out.add(el.asText().trim());
-            }
-        }
-        return out;
-    }
-
-    private static double confidence(JsonNode node) {
-        JsonNode v = node.get("extraction_confidence");
-        double c = v == null || v.isNull() ? 0.5 : v.asDouble(0.5);
-        return Math.max(0.0, Math.min(1.0, c));
-    }
+    // --- allow-list for the system prompt ------------------------------------------------------
 
     private static String enumList(Enum<?>[] values) {
         List<String> names = new ArrayList<>();

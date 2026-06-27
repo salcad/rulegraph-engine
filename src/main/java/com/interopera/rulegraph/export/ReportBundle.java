@@ -25,6 +25,9 @@ public record ReportBundle(
         TraceabilityChecker.Report traceability,
         Firewall firewall,
         List<AuditEvent> audit,
+        // The configured LLM model id (e.g. "anthropic/claude-sonnet-4.6"), always present so the
+        // viewer can label the LLM extractor with the model it would use, even before any LLM run.
+        String llmModel,
         // The LLM prompt/reply exchange, present only for an LLM run; omitted for a seed run so the
         // viewer shows the exchange popup only when the operator actually picked the LLM extractor.
         @JsonInclude(JsonInclude.Include.NON_NULL) LlmRuleExtractor.LlmExchange llmExchange

@@ -1,0 +1,161 @@
+{
+  "_comment": "Frozen, post-approval rule set for the Meridian guidelines — the deterministic baseline the system runs with when no LLM is used. It is the same JSON shape an LLM-backed extractor returns (see LlmRuleExtractor), so a single mapper turns either into RuleIntents. The one difference: a live LLM emits 'source_chunk_id' (a hash of the exact PDF text), whereas this frozen set carries 'source_keyword' instead, resolved to a real chunk id by first text match at load time, so provenance stays correct when the guideline PDF is re-parsed. Limit/threshold values here are read from the guideline text only; this file contains no portfolio figure or computation.",
+  "intents": [
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "singapore_government_securities",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 20,
+      "max_value": 60,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "Singapore Government Securities",
+      "passage_summary": "Section 2 — SGS allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "mas_bills",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 0,
+      "max_value": 40,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "MAS Bills",
+      "passage_summary": "Section 2 — MAS Bills allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "investment_grade_corporate_bonds",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 10,
+      "max_value": 50,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "Investment Grade Corporate Bonds",
+      "passage_summary": "Section 2 — IG corporate allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "high_yield",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 0,
+      "max_value": 15,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "High Yield",
+      "passage_summary": "Section 2 — High Yield allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "foreign_currency_bonds",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 0,
+      "max_value": 20,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "Foreign Currency Bonds",
+      "passage_summary": "Section 2 — FX bonds allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "structured_credit",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 0,
+      "max_value": 10,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "Structured Credit",
+      "passage_summary": "Section 2 — Structured credit allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "ALLOCATION_LIMIT",
+      "target_code": "cash",
+      "formula_key": "ALLOCATION_PERCENT",
+      "min_value": 5,
+      "max_value": 25,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "Cash",
+      "passage_summary": "Section 2 — Cash allocation band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "EXPOSURE_LIMIT",
+      "target_code": "aggregate_non_ig_exposure",
+      "formula_key": "AGGREGATE_EXPOSURE_PERCENT",
+      "min_value": null,
+      "max_value": 20,
+      "unit": "PERCENT",
+      "contributing_codes": ["high_yield", "structured_credit"],
+      "source_keyword": "non-investment-grade",
+      "passage_summary": "Section 2 note — aggregate non-IG exposure cap",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "CONCENTRATION_LIMIT",
+      "target_code": "single_corporate_issuer",
+      "formula_key": "ISSUER_CONCENTRATION",
+      "min_value": null,
+      "max_value": 8,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "single issuer",
+      "passage_summary": "Section 3.2 — single issuer concentration cap",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "CONCENTRATION_LIMIT",
+      "target_code": "gre_issuer",
+      "formula_key": "GROUP_CONCENTRATION",
+      "min_value": null,
+      "max_value": 12,
+      "unit": "PERCENT",
+      "contributing_codes": [],
+      "source_keyword": "Government-related entities",
+      "passage_summary": "Section 3.2 — GRE concentration cap",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "LIQUIDITY_FLOOR",
+      "target_code": "liquid_assets_ratio",
+      "formula_key": "LIQUIDITY_RATIO",
+      "min_value": 25,
+      "max_value": null,
+      "unit": "PERCENT",
+      "contributing_codes": ["singapore_government_securities", "mas_bills", "cash"],
+      "source_keyword": "Liquid assets",
+      "passage_summary": "Section 3.3 — liquidity floor (normal conditions)",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "RISK_METRIC",
+      "target_code": "modified_duration",
+      "formula_key": "PORTFOLIO_DURATION",
+      "min_value": 2.0,
+      "max_value": 6.5,
+      "unit": "YEARS",
+      "contributing_codes": [],
+      "source_keyword": "Modified Duration",
+      "passage_summary": "Section 3.1 — modified duration band",
+      "extraction_confidence": 1.0
+    },
+    {
+      "rule_type": "RISK_METRIC",
+      "target_code": "portfolio_dv01",
+      "formula_key": "PORTFOLIO_DV01",
+      "min_value": null,
+      "max_value": 85000,
+      "unit": "SGD_PER_BP",
+      "contributing_codes": [],
+      "source_keyword": "DV01",
+      "passage_summary": "Section 3.1 — portfolio DV01 limit",
+      "extraction_confidence": 1.0
+    }
+  ]
+}

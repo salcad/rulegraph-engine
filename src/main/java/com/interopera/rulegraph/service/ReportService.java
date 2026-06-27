@@ -7,6 +7,7 @@ import com.interopera.rulegraph.audit.AppendOnlyAuditLog;
 import com.interopera.rulegraph.audit.AuditEventType;
 import com.interopera.rulegraph.computation.FigureComputationService;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
+import com.interopera.rulegraph.config.LlmProperties;
 import com.interopera.rulegraph.domain.FigureResult;
 import com.interopera.rulegraph.evaluation.TraceabilityChecker;
 import com.interopera.rulegraph.export.ReportBundle;
@@ -47,6 +48,7 @@ public class ReportService {
     private final NarrativeFirewall narrativeFirewall;
     private final AppendOnlyAuditLog auditLog;
     private final FormulaLibrary formulaLibrary;
+    private final LlmProperties llmProperties;
 
     private final ObjectMapper json = new ObjectMapper()
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
@@ -61,7 +63,8 @@ public class ReportService {
                          NarrativeGenerator narrativeGenerator,
                          NarrativeFirewall narrativeFirewall,
                          AppendOnlyAuditLog auditLog,
-                         FormulaLibrary formulaLibrary) {
+                         FormulaLibrary formulaLibrary,
+                         LlmProperties llmProperties) {
         this.ingestionService = ingestionService;
         this.computationService = computationService;
         this.firmConfigLoader = firmConfigLoader;
@@ -72,6 +75,7 @@ public class ReportService {
         this.narrativeFirewall = narrativeFirewall;
         this.auditLog = auditLog;
         this.formulaLibrary = formulaLibrary;
+        this.llmProperties = llmProperties;
     }
 
     /**
@@ -148,6 +152,7 @@ public class ReportService {
         // reuse (e.g. a firm switch) the LLM did not run, so the viewer should not pop the dialog.
         ReportBundle bundle = new ReportBundle(firm, figures, reconciliation, traceability,
                 new ReportBundle.Firewall(narrative, firewall), auditLog.readAll(runId),
+                llmProperties.model(),
                 ingest.freshlyBuilt() ? ingest.llmExchange() : null);
         writeBundle(firmId, bundle);
         return bundle;

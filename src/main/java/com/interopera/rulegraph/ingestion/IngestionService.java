@@ -125,9 +125,19 @@ public class IngestionService {
                 graphBuilder.build(chunks, intents, positions);
         log.info("Graph built: {} nodes, {} edges", graph.nodeCount(), graph.edgeCount());
 
-        lastResult = new IngestionResult(effective, chunks.size(), positions.size(), intents.size(),
-                graph.nodeCount(), graph.edgeCount(), unresolved, llmExchange, true);
-        return lastResult;
+        IngestionResult result = new IngestionResult(effective, chunks.size(), positions.size(),
+                intents.size(), graph.nodeCount(), graph.edgeCount(), unresolved, llmExchange, true);
+
+        // Cache the built graph for reuse on a firm switch or a repeated request — but never cache a
+        // fallback. A fallback means the LLM did not really run (no or invalid key, or an unusable
+        // reply): the next request should attempt the LLM again — re-showing the warning while it
+        // keeps failing, and picking up a fixed key once it works — rather than silently serving the
+        // seed-based graph from cache as though an LLM run had produced it.
+        boolean fellBack = llmExchange != null && llmExchange.fellBack();
+        if (!fellBack) {
+            lastResult = result;
+        }
+        return result;
     }
 
     /**
