@@ -11,11 +11,6 @@ the calculation engine rather than by a language model.
 This repository contains the backend engine. It is built with Java 21 and Spring Boot, stores the
 knowledge graph in Neo4j, and uses Apache PDFBox and Commons CSV to read the source materials.
 
-The design documents are under `docs/`: the process flows and audit event catalogue
-([docs/01_flow_and_audit_events.md](docs/01_flow_and_audit_events.md)), the architecture
-([docs/02_architecture.md](docs/02_architecture.md)), and the design memo
-([docs/03_rfc.md](docs/03_rfc.md)).
-
 ## The problem this solves
 
 A fund administrator runs a portfolio against a book of rules and must periodically report, for each
@@ -383,13 +378,22 @@ serves the report viewer.
 NEO4J_PASSWORD=password123 java -jar target/rulegraph-engine-0.1.0.jar
 ```
 
-It exposes two endpoints on port 8074:
+It exposes these endpoints on port 8074:
 
 | Endpoint | Returns |
 |----------|---------|
 | `GET /rulegraph-api/firms` | the firms that can be reported, for the viewer's firm switch |
-| `GET /rulegraph-api/report?firm=firm_A` | the full report bundle for a firm: figures, reconciliation, traceability, firewall, narrative, and audit events |
+| `GET /rulegraph-api/report?firm=firm_A&extractor=seed` | the full report bundle for a firm: figures, reconciliation, traceability, firewall, narrative, audit events, and (when the LLM ran) the exact prompt and reply exchange |
 | `GET /rulegraph-api/graph` | the connected knowledge graph (nodes and edges) for the viewer's graph view |
+| `GET /rulegraph-api/figure-graph?figure=...` | the trace subgraph for a single figure: the live traversal it was computed along, from its positions through the rule to the guideline chunk that defines it |
+| `GET /rulegraph-api/health` | a liveness probe for load balancers and uptime checks |
+
+The optional `extractor` parameter on `/report` chooses how the rules are interpreted for that run:
+`seed` uses the deterministic offline rule set, and `llm` has a frontier model interpret the
+guideline text (see "Working with the language model" below). When the parameter is omitted the
+configured default is used. On an LLM run the response also carries the verbatim system and user
+prompt and the model's reply, so a reviewer can see exactly what the model was asked and what it
+returned, while the figures themselves remain engine-computed.
 
 The viewer calls this API directly from the browser (cross-origin), so the browser's origin must be
 allowed for CORS. Allowed origins default to the local dev servers (`http://localhost:5173` and
@@ -422,13 +426,13 @@ external folder lets new firms be added without rebuilding the application.
 
 The mapping from raw holdings asset-class labels to canonical codes is data-driven too: alias rules
 live in `src/main/resources/asset_class_codes.yaml` (a label resolves to the first code one of whose
-`match` substrings it contains; an unmatched label falls back to a slugified form). Editing that file
-— or pointing `RULEGRAPH_ASSET_CLASS_CODES` at an external copy — supports a different fund's
+`match` substrings it contains; an unmatched label falls back to a slugified form). Editing that file,
+or pointing `RULEGRAPH_ASSET_CLASS_CODES` at an external copy, supports a different fund's
 vocabulary without an engine-code change.
 
 ## Firm-method mini-DSL with live preview
 
-A firm's method can also be expressed in a small line-oriented DSL — a friendlier alternative to the
+A firm's method can also be expressed in a small line-oriented DSL, a friendlier alternative to the
 per-firm YAML for the same three conventions, and still pure configuration (compiling it never edits
 a calculator):
 
@@ -441,8 +445,8 @@ utilization bps          # percent | bps
 
 Omitted directives fall back to Firm A's defaults; unknown directives or values are reported per line.
 The viewer's **Method DSL** tab posts the draft to the API on each edit and renders a live preview:
-the compiled config, a plain-English explanation, any per-line errors, and — best-effort against the
-current graph — the figures those conventions would produce. Endpoints:
+the compiled config, a plain-English explanation, any per-line errors, and, best-effort against the
+current graph, the figures those conventions would produce. Endpoints:
 
 | Method | Path                               | Purpose                                                    |
 |--------|------------------------------------|------------------------------------------------------------|
@@ -477,7 +481,7 @@ single interface (`RuleExtractor`), so the system can run with or without an ext
   it transparently falls back to the seed extractor.
 
 Either way the extractor only *names* a trusted calculation method drawn from a fixed allow-list and
-only echoes thresholds present in the source text — it never produces a figure (constraint 3). Any
+only echoes thresholds present in the source text, and it never produces a figure (constraint 3). Any
 formula key or rule type off the allow-list is dropped, and any source chunk the model invents becomes
 `chunk_unresolved`, surfacing downstream as untraceable rather than as a fabricated citation.
 
@@ -486,7 +490,7 @@ To enable the LLM-backed extractor:
 ```bash
 export RULEGRAPH_LLM_ENABLED=true
 export OPENROUTER_API_KEY=sk-or-...            # your OpenRouter key
-export OPENROUTER_MODEL=anthropic/claude-3.5-sonnet   # any OpenRouter model id (optional)
+export OPENROUTER_MODEL=anthropic/claude-sonnet-4.6   # any OpenRouter model id (optional, this is the default)
 ```
 
 Relevant settings (see `application.yml`, prefix `rulegraph.llm`): `enabled`, `api-key`, `base-url`,
