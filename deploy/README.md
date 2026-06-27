@@ -22,13 +22,20 @@ Both containers publish to `127.0.0.1` only; the host nginx is the sole public d
 
 ## 1. Bring up the containers
 
-From the repository root:
+Each module has its own compose; they run as independent stacks. Bring up the
+backend first, then the UI.
 
 ```bash
-# Optional: set secrets in a .env file next to docker-compose.yml
+# Backend (Neo4j + engine API on 127.0.0.1:8074)
+cd rulegraph-engine
+# Optional: set secrets in a .env file next to this compose
 #   NEO4J_PASSWORD=<a real secret>
 #   OPENROUTER_API_KEY=<key>        # only if you want the LLM extractor
 #   RULEGRAPH_LLM_ENABLED=true      #   "
+docker compose up -d --build
+
+# UI (static viewer on 127.0.0.1:8073)
+cd ../rulegraph-ui
 docker compose up -d --build
 ```
 
@@ -36,7 +43,6 @@ This starts `rulegraph-neo4j`, `rulegraph-backend` (on `127.0.0.1:8074`), and
 `rulegraph-ui` (on `127.0.0.1:8073`). Check them:
 
 ```bash
-docker compose ps
 curl -s http://127.0.0.1:8074/rulegraph-api/health   # backend health
 curl -sI http://127.0.0.1:8073/                       # UI index
 ```
@@ -71,20 +77,22 @@ Open `https://rulegraph.javanet.cyou/` — the viewer loads and its API calls go
 
 ```bash
 git pull
-docker compose up -d --build      # rebuilds changed images, recreates containers
+(cd rulegraph-engine && docker compose up -d --build)   # backend
+(cd rulegraph-ui     && docker compose up -d --build)   # UI
 ```
 
-The UI's API base URL is baked in at build time, so the image must be rebuilt
-(not just restarted) if you ever change the subdomain or the API prefix.
+Rebuild only the module you changed. The UI's API base URL is baked in at build
+time, so its image must be rebuilt (not just restarted) if you ever change the
+subdomain or the API prefix.
 
 ## Notes
 
-- **Neo4j** is not published to the host in this stack; only the backend reaches
-  it over the compose network. Add a `127.0.0.1:7474:7474` mapping temporarily if
-  you need the Neo4j browser.
+- **Neo4j** is published to `127.0.0.1` only (browser on 7474, Bolt on 7687) for
+  local access; the backend itself reaches it over the compose network, so nothing
+  is exposed to the public internet.
 - **First report is slow.** The first request for a firm ingests the PDF and runs
   the pipeline (and, if enabled, an LLM call). The vhost allows a 120s read
   timeout for `/rulegraph-api/` to cover this; later requests are fast.
-- **Local development** is unchanged: `rulegraph-engine/docker-compose.yml` runs
-  the backend alone and the viewer runs in the Vite dev server. That stack shares
-  container names with this one, so run only one at a time.
+- **Local development** uses the same backend compose (`rulegraph-engine/`) with
+  the viewer in the Vite dev server instead of the UI container. The dev server
+  proxies `/rulegraph-api` to `127.0.0.1:8074`, so it is same-origin too.

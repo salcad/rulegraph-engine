@@ -1,27 +1,30 @@
-# Self-contained backend stack: Neo4j plus the engine's web API. This is what you deploy to a server
-# (for example a Docker VPS); the front end is deployed separately and calls this API.
+# Backend module: Neo4j plus the engine's web API. Deploy this alongside the front-end module
+# (../rulegraph-ui/docker-compose.yml); the two run as independent stacks behind the host's nginx
+# vhost, which is the single public entry point. See deploy/README.md for the vhost and TLS.
 #
 #   docker compose up -d --build          # build and start Neo4j and the backend
 #   docker compose up -d neo4j            # just Neo4j, for running the jar locally during development
 #   docker compose down                   # stop (keep the Neo4j volume)
 #
-# Change NEO4J_AUTH / NEO4J_PASSWORD to a real secret before exposing this publicly. Set
-# RULEGRAPH_CORS_ORIGINS only if the browser calls this API directly (see DEPLOY.md).
-#
-# Note: the repository root has its own docker-compose.yml that runs this backend together with the
-# UI for a local all-in-one demo. The two share container names, so run only one stack at a time.
+# All ports bind to 127.0.0.1 only, so nothing is reachable from the public internet except through
+# the host nginx. Set NEO4J_PASSWORD (and optionally OPENROUTER_API_KEY / RULEGRAPH_LLM_ENABLED) in a
+# .env file next to this compose before deploying. RULEGRAPH_CORS_ORIGINS matters only when the browser
+# calls this API on a different origin (e.g. a local dev viewer); the deployed UI is same-origin.
 services:
   neo4j:
     image: neo4j:5.23-community
     container_name: rulegraph-neo4j
+    # Loopback only: the backend reaches Neo4j over the compose network; these mappings just expose
+    # the browser (7474) and Bolt (7687) to the local host for development.
     ports:
-      - "7474:7474"   # Neo4j browser
-      - "7687:7687"   # Bolt
+      - "127.0.0.1:7474:7474"   # Neo4j browser
+      - "127.0.0.1:7687:7687"   # Bolt
     environment:
-      NEO4J_AUTH: neo4j/password123
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password123}
       NEO4J_server_memory_pagecache_size: 512M
     volumes:
       - neo4j-data:/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 10s
@@ -31,21 +34,23 @@ services:
   backend:
     build: .
     container_name: rulegraph-backend
+    # Loopback only: reached via the host nginx /rulegraph-api/ proxy, never directly from the internet.
     ports:
-      - "8074:8074"
+      - "127.0.0.1:8074:8074"
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: password123
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password123}
       RULEGRAPH_SAMPLE_DOCS: /app/sample_docs
       # Allowed CORS origins for direct browser-to-backend calls. Includes the local Vite dev server
       # (5173) and preview (4173) so the UI works in development; add your deployed origins here too.
-      RULEGRAPH_CORS_ORIGINS: "https://*.vercel.app,http://localhost:5173,http://localhost:4173"
+      RULEGRAPH_CORS_ORIGINS: "http://localhost:5173,http://localhost:4173"
       # OpenRouter API key for the LLM rule extractor. Export OPENROUTER_API_KEY in your shell so it
       # passes through at `docker compose up` time. When unset the app just falls back to the seed
       # extractor, so a missing key won't block boot.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       RULEGRAPH_LLM_ENABLED: ${RULEGRAPH_LLM_ENABLED:-false}
+    restart: unless-stopped
     depends_on:
       neo4j:
         condition: service_healthy

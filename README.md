@@ -395,10 +395,11 @@ configured default is used. On an LLM run the response also carries the verbatim
 prompt and the model's reply, so a reviewer can see exactly what the model was asked and what it
 returned, while the figures themselves remain engine-computed.
 
-The viewer calls this API directly from the browser (cross-origin), so the browser's origin must be
-allowed for CORS. Allowed origins default to the local dev servers (`http://localhost:5173` and
-`http://localhost:4173`) and can be set with `RULEGRAPH_CORS_ORIGINS` (a comma-separated list of
-origin patterns, for example `https://*.vercel.app`) when the viewer is hosted elsewhere.
+In the deployed stack the viewer is served from the same origin and reaches this API through an nginx
+proxy, so no CORS is involved. CORS only matters when the browser calls the API on a different origin
+(for example a local dev viewer). Allowed origins default to the local dev servers
+(`http://localhost:5173` and `http://localhost:4173`) and can be set with `RULEGRAPH_CORS_ORIGINS` (a
+comma-separated list of origin patterns) when the viewer is hosted elsewhere.
 
 Each call to `/rulegraph-api/report` runs the same pipeline the command line does, so the API and the command
 line always produce identical results. The response is the same JSON the command line writes to
