@@ -42,9 +42,13 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password123}
       RULEGRAPH_SAMPLE_DOCS: /app/sample_docs
-      # Allowed CORS origins for direct browser-to-backend calls. Includes the local Vite dev server
-      # (5173) and preview (4173) so the UI works in development; add your deployed origins here too.
-      RULEGRAPH_CORS_ORIGINS: "http://localhost:5173,http://localhost:4173"
+      # Allowed CORS origins for browser-to-backend calls. Includes the local Vite dev server (5173)
+      # and preview (4173) for development, plus the deployed origin. The deployed UI is same-origin,
+      # but the host nginx proxies to this app over plain HTTP without forwarding the scheme, so Spring
+      # sees the request as http:// while the browser's Origin is https:// — a scheme mismatch that
+      # makes Spring treat it as cross-origin. Listing the https origin here lets those requests through
+      # (otherwise the firm-method preview POST fails with 403). Add other deployed origins as needed.
+      RULEGRAPH_CORS_ORIGINS: "http://localhost:5173,http://localhost:4173,https://rulegraph.javanet.cyou"
       # OpenRouter API key for the LLM rule extractor. Export OPENROUTER_API_KEY in your shell so it
       # passes through at `docker compose up` time. When unset the app just falls back to the seed
       # extractor, so a missing key won't block boot.
