@@ -171,6 +171,21 @@ public class GraphQueryService {
 
     /** Picks a sensible display name for a node from its properties, by type. */
     private String displayLabel(String type, Map<String, Object> props) {
+        String base = baseLabel(type, props);
+        // A Position carries the market value the figures sum, so we show it on the node itself: this
+        // is where the audience sees each contribution that adds up to a figure's input, right on the
+        // trace graph rather than only in the formula's input list.
+        if ("Position".equals(type)) {
+            Object mv = props.get("market_value_sgd");
+            if (mv != null) {
+                return base + " · " + formatSgd(mv.toString());
+            }
+        }
+        return base;
+    }
+
+    /** The node's name from its identifying property, before any type-specific annotation. */
+    private String baseLabel(String type, Map<String, Object> props) {
         for (String key : List.of("code", "name", "role", "instrument_id", "chunk_id")) {
             Object v = props.get(key);
             if (v != null) {
@@ -178,6 +193,16 @@ public class GraphQueryService {
             }
         }
         return type;
+    }
+
+    /** Renders a market value the way the figures read it: grouped thousands, "S$" prefix. */
+    private static String formatSgd(String raw) {
+        try {
+            return "S$" + new java.text.DecimalFormat("#,##0.####")
+                    .format(new java.math.BigDecimal(raw));
+        } catch (NumberFormatException e) {
+            return raw;
+        }
     }
 
     /** The source chunk that defines a given limit/aggregate/threshold code (the trace terminus). */
