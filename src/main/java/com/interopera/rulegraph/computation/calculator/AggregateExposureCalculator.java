@@ -5,6 +5,7 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.TraceCypher;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
@@ -65,13 +66,16 @@ public class AggregateExposureCalculator implements FigureCalculator {
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct), status,
                 limit, util, formulas.expression(key()), inputs,
-                buildPath(rule, fallenAngels), rule.citation(), pct);
+                buildPath(rule, fallenAngels), buildCypher(rule), rule.citation(), pct);
     }
 
     private String buildPath(ResolvedRule rule, boolean fallenAngels) {
         List<String> hops = new ArrayList<>();
         for (String c : rule.contributors()) {
-            hops.add("(AssetClass:" + c + ")-[:CONTRIBUTES_TO]->(Aggregate:" + rule.code() + ")");
+            // The value sums the positions in each contributing class, so the trace starts at Position
+            // (as every other figure's path does), not at the asset class.
+            hops.add("(Position)-[:IN_ASSET_CLASS]->(AssetClass:" + c
+                    + ")-[:CONTRIBUTES_TO]->(Aggregate:" + rule.code() + ")");
         }
         String path = String.join(" , ", hops)
                 + " -[:DEFINED_BY]->(GuidelineChunk:" + rule.citation().chunkId() + ")";
@@ -79,5 +83,20 @@ public class AggregateExposureCalculator implements FigureCalculator {
             path += " (+ fallen-angel Positions via downgraded_from)";
         }
         return path;
+    }
+
+    // The fallen-angel note on the display path is firm convention, not an edge in the graph, so the
+    // runnable trace covers the positions in each contributing class rolling up to the aggregate and
+    // its source.
+    private String buildCypher(ResolvedRule rule) {
+        TraceCypher trace = TraceCypher.trace();
+        for (String c : rule.contributors()) {
+            trace.match().node("Position")
+                    .rel("IN_ASSET_CLASS").node("AssetClass", c)
+                    .rel("CONTRIBUTES_TO").node("Aggregate", rule.code()).end();
+        }
+        return trace.match().node("Aggregate", rule.code())
+                .rel("DEFINED_BY").node("GuidelineChunk", rule.citation().chunkId())
+                .end().build();
     }
 }

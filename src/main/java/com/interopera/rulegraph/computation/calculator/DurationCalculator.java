@@ -5,6 +5,7 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.TraceCypher;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
@@ -47,9 +48,15 @@ public class DurationCalculator implements FigureCalculator {
         String path = "(Position)-[:IN_ASSET_CLASS]->(AssetClass) || (RiskMetric:" + rule.code()
                 + ")-[:HAS_THRESHOLD]->(Threshold)-[:DEFINED_BY]->(GuidelineChunk:"
                 + rule.citation().chunkId() + ")";
+        String cypher = TraceCypher.trace()
+                .match().node("Position").rel("IN_ASSET_CLASS").node("AssetClass").end()
+                .match().node("RiskMetric", rule.code())
+                        .rel("HAS_THRESHOLD").node("Threshold", rule.code())
+                        .rel("DEFINED_BY").node("GuidelineChunk", rule.citation().chunkId())
+                .end().build();
 
         return new FigureResult(rule.code(), display.toPlainString() + " yrs",
                 Statuses.againstBand(duration, rule.min(), rule.max()),
-                limit, "n/a", formulas.expression(key()), inputs, path, rule.citation(), display);
+                limit, "n/a", formulas.expression(key()), inputs, path, cypher, rule.citation(), display);
     }
 }

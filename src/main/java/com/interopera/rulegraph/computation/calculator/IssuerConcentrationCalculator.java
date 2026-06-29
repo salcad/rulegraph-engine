@@ -5,6 +5,7 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.TraceCypher;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
@@ -48,9 +49,14 @@ public class IssuerConcentrationCalculator implements FigureCalculator {
         String path = "(Position)-[:ISSUED_BY]->(Issuer:" + top.key()
                 + ") || (ConcentrationLimit:" + rule.code()
                 + ")-[:DEFINED_BY]->(GuidelineChunk:" + rule.citation().chunkId() + ")";
+        String cypher = TraceCypher.trace()
+                .match().node("Position").rel("ISSUED_BY").node("Issuer", top.key()).end()
+                .match().node("ConcentrationLimit", rule.code())
+                        .rel("DEFINED_BY").node("GuidelineChunk", rule.citation().chunkId())
+                .end().build();
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct),
                 Statuses.againstMax(pct, rule.max()), limit, util,
-                formulas.expression(key()), inputs, path, rule.citation(), pct);
+                formulas.expression(key()), inputs, path, cypher, rule.citation(), pct);
     }
 }

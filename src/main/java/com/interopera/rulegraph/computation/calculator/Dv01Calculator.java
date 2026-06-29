@@ -5,6 +5,7 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.TraceCypher;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
@@ -45,9 +46,15 @@ public class Dv01Calculator implements FigureCalculator {
         String path = "(Position)-[:IN_ASSET_CLASS]->(AssetClass) || (RiskMetric:" + rule.code()
                 + ")-[:HAS_THRESHOLD]->(Threshold)-[:DEFINED_BY]->(GuidelineChunk:"
                 + rule.citation().chunkId() + ")";
+        String cypher = TraceCypher.trace()
+                .match().node("Position").rel("IN_ASSET_CLASS").node("AssetClass").end()
+                .match().node("RiskMetric", rule.code())
+                        .rel("HAS_THRESHOLD").node("Threshold", rule.code())
+                        .rel("DEFINED_BY").node("GuidelineChunk", rule.citation().chunkId())
+                .end().build();
 
         return new FigureResult(rule.code(), value,
                 Statuses.againstMax(dv01, rule.max()), limit, util,
-                formulas.expression(key()), inputs, path, rule.citation(), dv01);
+                formulas.expression(key()), inputs, path, cypher, rule.citation(), dv01);
     }
 }

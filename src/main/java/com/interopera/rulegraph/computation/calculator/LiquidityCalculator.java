@@ -5,6 +5,7 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.TraceCypher;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
@@ -46,14 +47,24 @@ public class LiquidityCalculator implements FigureCalculator {
         String limit = "min " + Formatting.percentBound(rule.min()) + "%";
 
         List<String> hops = new ArrayList<>();
+        TraceCypher trace = TraceCypher.trace();
         for (String c : rule.contributors()) {
-            hops.add("(AssetClass:" + c + ")-[:CONTRIBUTES_TO]->(LiquidityFloor:" + rule.code() + ")");
+            // The value sums the positions in each contributing class, so the trace starts at Position
+            // (as every other figure's path does), not at the asset class.
+            hops.add("(Position)-[:IN_ASSET_CLASS]->(AssetClass:" + c
+                    + ")-[:CONTRIBUTES_TO]->(LiquidityFloor:" + rule.code() + ")");
+            trace.match().node("Position")
+                    .rel("IN_ASSET_CLASS").node("AssetClass", c)
+                    .rel("CONTRIBUTES_TO").node("LiquidityFloor", rule.code()).end();
         }
         String path = String.join(" , ", hops)
                 + " -[:DEFINED_BY]->(GuidelineChunk:" + rule.citation().chunkId() + ")";
+        String cypher = trace.match().node("LiquidityFloor", rule.code())
+                .rel("DEFINED_BY").node("GuidelineChunk", rule.citation().chunkId())
+                .end().build();
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct),
                 Statuses.againstMin(pct, rule.min()), limit, util,
-                formulas.expression(key()), inputs, path, rule.citation(), pct);
+                formulas.expression(key()), inputs, path, cypher, rule.citation(), pct);
     }
 }

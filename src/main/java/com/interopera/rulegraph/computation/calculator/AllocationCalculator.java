@@ -5,6 +5,7 @@ import com.interopera.rulegraph.computation.FigureCalculator;
 import com.interopera.rulegraph.computation.Formatting;
 import com.interopera.rulegraph.computation.ResolvedRule;
 import com.interopera.rulegraph.computation.Statuses;
+import com.interopera.rulegraph.computation.TraceCypher;
 import com.interopera.rulegraph.computation.dsl.FormulaLibrary;
 import com.interopera.rulegraph.domain.FigureInput;
 import com.interopera.rulegraph.domain.FigureResult;
@@ -54,9 +55,15 @@ public class AllocationCalculator implements FigureCalculator {
         String path = "(Position)-[:IN_ASSET_CLASS]->(AssetClass:" + rule.code()
                 + ")-[:HAS_LIMIT]->(Limit:" + rule.code()
                 + ")-[:DEFINED_BY]->(GuidelineChunk:" + rule.citation().chunkId() + ")";
+        String cypher = TraceCypher.trace().match()
+                .node("Position")
+                .rel("IN_ASSET_CLASS").node("AssetClass", rule.code())
+                .rel("HAS_LIMIT").node("Limit", rule.code())
+                .rel("DEFINED_BY").node("GuidelineChunk", rule.citation().chunkId())
+                .end().build();
 
         return new FigureResult(rule.code(), Formatting.percent1dp(pct), status,
-                limit, util, formulas.expression(key()), inputs, path, rule.citation(), pct);
+                limit, util, formulas.expression(key()), inputs, path, cypher, rule.citation(), pct);
     }
 
     private FigureStatus allocationStatus(BigDecimal pct, BigDecimal min, BigDecimal max) {
