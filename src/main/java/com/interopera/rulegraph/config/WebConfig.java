@@ -28,8 +28,9 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/rulegraph-api/**")
                 .allowedOriginPatterns(origins)
-                // GET for reports/graph; POST for the firm-method preview and save endpoints.
-                .allowedMethods("GET", "POST", "OPTIONS")
+                // GET for reports/graph; POST for the firm-method preview and holdings restore;
+                // PUT for saving an edited holdings file.
+                .allowedMethods("GET", "POST", "PUT", "OPTIONS")
                 .allowedHeaders("*");
     }
 }

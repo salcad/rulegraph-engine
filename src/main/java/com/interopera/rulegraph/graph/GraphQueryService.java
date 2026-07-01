@@ -181,7 +181,110 @@ public class GraphQueryService {
                 return base + " · " + formatSgd(mv.toString());
             }
         }
+        // A BreachAction's code is the risk-metric it hangs off (e.g. "modified_duration"), so by code
+        // alone it is indistinguishable from the RiskMetric and Threshold nodes for that same metric -
+        // the red node hides among identically-labelled purple ones. Show its description (the actual
+        // action, e.g. "PM notification within 1h"), which is unique and matches the legend.
+        if ("BreachAction".equals(type)) {
+            Object desc = props.get("description");
+            if (desc != null) {
+                return desc.toString();
+            }
+        }
+        // A limit-type node (allocation band, exposure/concentration cap, liquidity floor, risk
+        // threshold) carries the bound it enforces as a stored property. Show it on the node so
+        // clicking a Limit reveals its value on the trace graph, not just its code. The number is
+        // read from the graph, never computed here, so this stays a pure display concern.
+        String bound = limitAnnotation(type, props);
+        if (bound != null) {
+            return base + " · " + bound;
+        }
         return base;
+    }
+
+    /**
+     * The bound a limit-type node enforces, rendered from that node's own stored properties. Returns
+     * {@code null} for node types that carry no bound (e.g. {@code AssetClass}, {@code Issuer}), so
+     * the caller leaves their label untouched.
+     */
+    static String limitAnnotation(String type, Map<String, Object> props) {
+        Object unit = props.get("unit");
+        switch (type) {
+            // Allocation limits and risk thresholds carry a min/max band.
+            case "Limit", "Threshold" -> {
+                return band(props.get("min"), props.get("max"), unit);
+            }
+            // Exposure and concentration caps are one-sided upper bounds.
+            case "Aggregate", "ConcentrationLimit" -> {
+                Object cap = props.get("cap");
+                return cap == null ? null : "≤ " + formatBound(cap, unit);
+            }
+            // A liquidity floor is a one-sided lower bound.
+            case "LiquidityFloor" -> {
+                Object floor = props.get("floor");
+                return floor == null ? null : "≥ " + formatBound(floor, unit);
+            }
+            default -> {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * A two-sided band when both a positive lower bound and an upper bound constrain the value,
+     * otherwise the single {@code ≤}/{@code ≥} bound that applies. A zero (or absent) lower
+     * bound is treated as no floor, since a "0%" minimum constrains nothing.
+     */
+    private static String band(Object min, Object max, Object unit) {
+        boolean hasMin = isPositive(min);
+        boolean hasMax = max != null;
+        if (hasMin && hasMax) {
+            return formatBound(min, null) + "–" + formatBound(max, unit);
+        }
+        if (hasMax) {
+            return "≤ " + formatBound(max, unit);
+        }
+        if (min != null) {
+            return "≥ " + formatBound(min, unit);
+        }
+        return null;
+    }
+
+    /** A bound value with its unit suffix, grouped and trimmed the way the figures read it. */
+    private static String formatBound(Object value, Object unit) {
+        String num;
+        try {
+            num = new java.text.DecimalFormat("#,##0.####")
+                    .format(new java.math.BigDecimal(value.toString()));
+        } catch (NumberFormatException e) {
+            num = value.toString();
+        }
+        return num + unitSuffix(unit);
+    }
+
+    /** Turns a stored unit token into the suffix an auditor reads (percent, years, SGD-per-bp). */
+    private static String unitSuffix(Object unit) {
+        if (unit == null) {
+            return "";
+        }
+        return switch (unit.toString()) {
+            case "PERCENT" -> "%";
+            case "YEARS" -> " yrs";
+            case "SGD_PER_BP" -> " SGD/bp";
+            default -> " " + unit;
+        };
+    }
+
+    /** True when a bound is a real, positive constraint (a null or zero floor constrains nothing). */
+    private static boolean isPositive(Object value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            return new java.math.BigDecimal(value.toString()).signum() > 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     /** The node's name from its identifying property, before any type-specific annotation. */
